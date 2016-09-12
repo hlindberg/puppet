@@ -15,10 +15,11 @@ module Puppet::Pops
 # To support testing, a given file that is an empty string, or nil
 # as well as a nil line number are supported. Such stack frames
 # will be represented with the text `unknown` and `0´ respectively.
-#
+# @api public
 module PuppetStack
   # Sends a message to an obj such that it appears to come from
   # file, line when calling stacktrace.
+  # @api private
   #
   def self.stack(file, line, obj, message, args, &block)
     file = '' if file.nil?
@@ -31,6 +32,12 @@ module PuppetStack
     end
   end
 
+  # Returns the puppet stacktrace of function calls.
+  # The innermost nested function call appears first in an array of tuples containing the file and line
+  # information. If file is not known, the text "unknown" is found in this position. All other locations
+  # are a reference to a file ending with ".pp". The line number is always present and is an Integer.
+  # @api public
+  #
   def self.stacktrace
     caller().reduce([]) do |memo, loc|
       if loc =~ /^(.*\.pp)?:([0-9]+):in (`stack'|`block in call_function')/
