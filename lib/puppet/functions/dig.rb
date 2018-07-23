@@ -1,5 +1,5 @@
 # Returns a value for a sequence of given keys/indexes into a structure, such as
-# an array or hash.
+# an array or hash. CHANGED
 #
 # This function is used to "dig into" a complex data structure by
 # using a sequence of keys / indexes to access a value from which
