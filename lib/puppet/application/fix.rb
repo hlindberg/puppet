@@ -183,6 +183,8 @@ HELP
 #    })
 #  end
 
+  attr_reader :fix_config
+
   def run_command
 
     # Needed if fix is going to call Bolt directly

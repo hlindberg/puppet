@@ -1,4 +1,6 @@
 require 'spec_helper'
+require 'puppet_spec/files'
+require 'puppet_pal'
 
 require 'puppet/application/fix'
 require 'puppet/file_bucket/dipper'
@@ -210,6 +212,112 @@ describe Puppet::Application::Fix do
         @apply.options[:issue] = 'abc::def::1.2.3_Some name'
         @apply.options[:issues_file] = 'somefile.yaml'
         expect { @apply.main }.to raise_error(/--issue and --issues_file cannot be used at the same time/)
+      end
+    end
+
+    context 'handles settings' do
+      it 'setup loads "fixconf.yaml"' do
+        allow(YAML).to receive(:load_file) { { } }
+        @apply.setup
+      end
+
+      it 'content from "fixconf.yaml" is loaded into fix_config attribute' do
+        allow(YAML).to receive(:load_file) { { 'benchmarks' => [] } }
+        @apply.setup
+        expect(@apply.fix_config['benchmarks']).to be_a(Array)
+      end
+    end
+
+    context 'loads content from modules' do
+      let(:testing_env) do
+        {
+          'pal_env' => {
+            'functions' => functions,
+            'lib' => { 'puppet' => lib_puppet },
+            'manifests' => manifests,
+            'modules' => modules,
+            'plans' => plans,
+            'tasks' => tasks,
+            'types' => types,
+            'data' => data,
+            'hiera.yaml' => env_hiera,
+          },
+        }
+      end
+
+      # Bind these to hashes representing filename => content
+      let(:functions) { {} }
+      let(:manifests) { {} }
+      let(:modules) { {} }
+      let(:plans) { {} }
+      let(:lib_puppet) { {} }
+      let(:tasks) { {} }
+      let(:types) { {} }
+      let(:data) { {} }
+      let(:env_hiera) { nil }
+
+      let(:environments_dir) { Puppet[:environmentpath] }
+
+      let(:testing_env_dir) do
+        dir_contained_in(environments_dir, testing_env)
+        env_dir = File.join(environments_dir, 'pal_env')
+        PuppetSpec::Files.record_tmp(env_dir)
+        env_dir
+      end
+
+      let(:modules_dir) { File.join(testing_env_dir, 'modules') }
+
+      context 'loads from hiera' do
+        let(:env_hiera) { <<-YAML.unindent
+          ---
+          version: 5
+          defaults:
+            data_hash: yaml_data
+            datadir: data
+          hierarchy:
+            - name: 'common'
+              path: 'common.yaml'
+          YAML
+        }
+
+        let(:data) {
+          { 'common.yaml' => common_data }
+        }
+
+        let(:common_data) { <<-YAML.unindent
+          ---
+          benchmarks:
+            - id: 'test benchmark'
+              facts: {
+                benchmark: {
+                  name: 'tesbm'
+                  family: 'cis'
+                  version: '1.2.3'
+                }
+                os: {
+                  name: "RedHat"
+                  family: "RedHat"
+                  release: {
+                    full: "7.2.1511"
+                    major: "7"
+                    minor: "2"
+                  }
+                }
+              }
+        YAML
+        }
+        it 'can do a lookup' do
+          pending("lookups does not work")
+          Puppet::Log.newdestination(:console)
+          x = testing_env_dir
+          result = Puppet::Pal.in_environment('pal_env', env_dir: testing_env_dir, facts: {}) do |ctx|
+            Puppet::Log.newdestination(:console)
+            ctx.with_script_compiler {|c| c.evaluate_string('lookup(benchmarks, default_value => "sorry, I am broken")') }
+          end
+          expect(result).to eq("make me happy")
+
+        end
+
       end
     end
 #
