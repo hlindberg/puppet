@@ -5,6 +5,8 @@ require 'puppet/parser/script_compiler'
 
 class Puppet::Application::Fix < Puppet::Application
 
+  require 'puppet/application/fix/fix_model'
+
   option("--debug","-d")
 
   option("--issue ISSUE", "-i") do |arg|
@@ -184,6 +186,7 @@ HELP
 #  end
 
   attr_reader :fix_config
+  attr_reader :known_benchmarks
 
   def run_command
 
@@ -228,11 +231,13 @@ HELP
       unless parsed_issue['section'] || parsed_issue['name']
         raise ArgumentError, "No reference to an issue was given, needs either a <section> or a <name> to match against"
       end
-    elsif options[:issue_file]
-      raise "Support for --issues_file not yet implemented"
+    elsif options[:issues_file]
+      issues = parse_issues_file(options[:issues_file])
     else
       raise ArgumentError, "No issue was given, use --issue or --issues_file"
     end
+
+    puts produce_plan("my::testplan", issues)
 
     # Stop here for now
     return
@@ -346,6 +351,13 @@ HELP
     # TODO: Read config file
     @fix_config = load_config
 
+    # Set up known_benchmarks (can be loaded from the config) - later to (todo: somehow) be combined
+    # with benchmarks delivered in modules.
+    #
+    @benchmarks = (@fix_config['benchmarks'] || []).map {|b| Model::Benchmark.from_hash(b) }
+
+    build_fixes(@fix_config['fixes'])
+
     # TODO: Should read and print its own configuration (in addition to puppet's)
     # exit(Puppet.settings.print_configs ? 0 : 1) if Puppet.settings.print_configs?
 
@@ -366,6 +378,9 @@ HELP
     if Puppet[:profile]
       @profiler = Puppet::Util::Profiler.add_profiler(Puppet::Util::Profiler::Aggregate.new(Puppet.method(:info), "fix"))
     end
+  end
+
+  def init_known_benchmarks(benchmarks)
   end
 
   # Loads the fix specific configuration from a file in current directory and returns a hash of
@@ -403,5 +418,202 @@ HELP
       captured['section'].gsub!(/_/,'.')
     end
     captured
+  end
+
+  # Parses the given file_name and validates its "issues on nodes" content
+  #
+  def parse_issues_file(file_name)
+    loaded = YAML.load_file(file_name)
+    validate_and_normalize_issues_file(loaded, file_name)
+  end
+
+  # Validates issue_file type content coming from a given location (filename) is only for reporting/ reference
+  # This also normalizes constructs like node/nodes into nodes.
+  #
+  def validate_and_normalize_issues_file(data, source_location)
+    # Top level is either a hash with keys 'benchmark', 'nodes', and 'issues', or an
+    # Array of such hashes
+    #
+    data = [data] unless data.is_a?(Array)
+    unless data.all? {|x| x.is_a?(Hash) }
+      raise "--issues_file #{source_location} must be a hash or array of hashes, got a nested array"
+    end
+    data.each_with_index do | section, i |
+
+      ##--BENCHMARK
+      #   Must have a reference to a known benchmark
+
+      unless get_benchmark(section['benchmark'])
+        raise "--issues_file #{source_location} at index #{i} does not have a reference to a known benchmark. Got '#{section['benchmark']}'."
+      end
+
+      ## -- NODE / NODES
+      #     Must have a node, or list of nodes
+
+      node = section['node']
+      nodes = section['nodes']
+      if node && nodes
+        raise "--issues_file #{source_location} at index #{i} uses both 'node' and 'nodes' - both not allowed at the same time."
+      end
+      if !(node || nodes)
+        raise "--issues_file #{source_location} at index #{i} must contain either 'node' or 'nodes'"
+      end
+
+      if nodes 
+        if !nodes.is_a?(Array)
+          raise "--issues_file #{source_location} at index #{i} has a 'nodes' entry that is not an array"
+        end
+      else
+        # Normalize node to be nodes: [node]
+        nodes = section['nodes'] = [node]
+        section.delete('node')
+      end
+
+      # validate the node names
+      # TODO: should probably strip them as well
+      unless nodes.all? {|n| n.is_a?(String) && n =~ /[a-zA-Z0-9]/ }
+        raise "--issues_file #{source_location} at index #{i} The node name '#{node}' is not acceptable as the name of a node"
+      end
+
+      ## -- ISSUES
+      #     Optionally have an (optionally empty) list of valid issues
+
+      the_issues = section['issues']
+      if !the_issues.nil?
+        unless the_issues.is_a?(Array) && (the_issues.empty? || the_issues.all? {|x| x.is_a?(Hash) })
+          raise "--issues_file #{source_location} at index #{i} The 'issues' must be an array of hashes"
+        end
+
+        the_issues.each_with_index do |issue, ii|
+          the_issue = parse_issue(issue['issue'])
+          unless the_issue['section'] || the_issue['name']
+            raise "--issues_file #{source_location} at index #{i}, issue[#{ii}} must contain benchmark 'section', 'name' or both"
+          end
+
+          if the_issue['mnemonic']
+            raise "--issues_file #{source_location} at index #{i}, issue[#{ii}} cannot reference a benchmark. Got '#{the_issue['mnemonic']}'"
+          end
+          # Set the parsed and validated value
+          issue['issue'] = the_issue
+        end
+
+        ## -- TODO: params
+      end
+    end
+  end
+
+  def build_fixes(fixes_array)
+    @fixes = {}
+    return if fixes_array.nil?
+    fixes_array.each do | fix |
+      f = Fix.new(fix)
+      @fixes[f.section] = f
+    end
+  end
+
+  def find_fix(issue)
+    # Find a corresponding fix, using section as key
+    # TODO: possibly, if section is missing, use the name instead
+
+    # For now, the fixes are in settings, later composed differently using hiera
+    raise "No fixes found" if @fixes.empty?
+
+    @fixes[issue['section']] || NOFIX
+  end
+
+  class Fix
+    attr_reader :fix_map
+
+    def initialize(fix_map)
+      @fix_map = fix_map
+    end
+
+    def section
+      @fix_map['section']
+    end
+
+    def name
+      @fix_map['name']
+    end
+
+    def to_pp(target_spec_name)
+      the_fix = @fix_map['fix'] || {}
+      if the_fix['task']
+        task_to_pp(the_fix, target_spec_name)
+      elsif  the_fix['command']
+        command_to_pp(the_fix, target_spec_name)
+      elsif the_fix['plan']
+        plan_to_pp(the_fix, target_spec_name)
+      else
+        "# No fix available"
+      end
+    end
+
+    def command_to_pp(the_command, target_spec)
+      command_string = the_command['command_string']
+      parts = [
+        "run_command('#{command_string}'",
+        "${target_spec}",
+      ] << the_command['params'].map do |p, v|
+        "'#{p}' => #{v.inspect}" # TODO: v.inspect is a temporary crutch to get quoted strings
+      end << ")"
+      parts.join(", ")
+    end
+
+    def plan_to_pp(the_plan, target_spec)
+      plan_name = the_plan['plan']
+      parts = [
+        "run_plan('#{plan_name}'",
+        "nodes => ${target_spec}",
+      ] << the_plan['params'].map do |p, v|
+        "'#{p}' => #{v.inspect}" # TODO: v.inspect is a temporary crutch 
+      end << ")"
+      parts.join(", ")
+    end
+
+    def task_to_pp(the_task, target_spec)
+      task_name = the_task['task']
+      parts = [
+        "run_task('#{task_name}'",
+        "nodes => $#{target_spec}",
+      ] << the_task['params'].map do |p, v|
+        "'#{p}' => #{v.inspect}" # TODO: v.inspect is a temporary crutch 
+      end << ")"
+      parts.join(", ")
+    end
+  end
+
+  NOFIX = Fix.new({})
+
+  # Gets Benchmark object by mnemonic
+  #
+  def get_benchmark(mnemonic)
+    @benchmarks.find(mnemonic) {|b| b.name == mnemonic }
+  end
+
+  def produce_plan(plan_name, reported_issues)
+    return '' if reported_issues.nil?
+    # For each issue
+    # Find the fix
+    # Output the fix
+    the_app = self
+    template = ERB.new(<<-EOF)
+## Puppet Fix generated remediation plan
+## Created on <%= Time.now %>
+##
+plan <%= plan_name %>() { <%
+  reported_issues.each_with_index do | report, index |
+    joined_nodes = report['nodes'].map {|n| n.inspect }.join(", ") %>
+  # Benchmark: <%= report['benchmark'] %>
+  $targets_<%= index %> = [ <%= joined_nodes %> ] <%
+  report['issues'].each do | entry |
+     result = the_app.find_fix(entry['issue']).to_pp(sprintf("targets_%s", index)) %>
+  # Section: <%= entry['issue']['section'] %>
+  # name: <%= entry['issue']['name'] %> 
+  <%= result %>
+<% end end %>
+}
+EOF
+    template.result(binding)
   end
 end
