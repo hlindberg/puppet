@@ -55,13 +55,14 @@ module Model
     # It is ok to add issues for which there are are no reported issues
     # 
     def add_issue(issue)
-      unless issue.is_a?(issue)
+      unless issue.is_a?(Issue)
         raise ArgumentError, "Expected an Issue, got '#{issue.class}'"
       end
       unless @benchmarks[issue.mnemonic]
         raise ArgumentError, "Given issue references unknown benchmark '#{issue.mnemonic}'"
       end
       @issues.add(issue)
+      issue
     end
 
     # Adds a known benchmark to the set
@@ -79,13 +80,16 @@ module Model
       unless issue.is_a?(Issue)
         raise ArgumentError, "ignore_reported_issue expects an Issue, got '#{issue.class}'"
       end
+      add_issue(issue)
       @ignored_issues.add(issue)
+      issue
     end
 
     def add_reported_issue(issue, *node_names)
       unless issue.is_a?(Issue)
         raise ArgumentError, "ignore_reported_issue expects an Issue, got '#{issue.class}'"
       end
+      add_issue(issue)
       @reported_issues[issue] << ReportedIssue.new(issue, node_names)
     end
 
@@ -102,12 +106,12 @@ module Model
       # Output header
       result << [
         '## Puppet Fix generated remediation plan',
-        "## Created on <%= Time.now %>",
+        "## Created on #{Time.now}",
         '##'
       ]
 
       # Sort all reported issues
-      sorted_reported = @reported_issues.sort_by {|ri| ri.issue.ref }
+      sorted_reported = @reported_issues.sort_by {|key, value| key.ref }
 
       # keep track of current bm, so new bm gets a new header
       prev_bm = nil
@@ -119,78 +123,87 @@ module Model
         ]
 
       # Iterate over all
-      sorted_reported.each do |ri|
-        # On new benchmark, output benchmark header
-        if ri.issue.mnemonic != prev_bm
-          prev_bm = ri.issue.mnemonic
-          bm = @benchmarks[prev_bm]
-          result << [
-            "    ## Benchmark: #{bm.name}",
-            "    ## Version  : #{bm.version}",
-            "    ## Id       : #{bm.id}",
-            ''
-            ]
-        end
+      sorted_reported.each do |the_issue, ri_array|
+        ri_array.each do |ri|
+          # On new benchmark, output benchmark header
+          if ri.issue.mnemonic != prev_bm
+            prev_bm = ri.issue.mnemonic
+            bm = @benchmarks[prev_bm]
+            result << [
+              "    ## Benchmark: #{bm.name}",
+              "    ## Version  : #{bm.version}",
+              "    ## Id       : #{bm.id}",
+              ]
+          end
 
-        # Indicate if issue is skipped or being fixed
-        if @ignored_issues[ri.issue]
-          result << [
-            "    ## Skip     : #{ri.issue.ref}"
-            ]
-        else
-          result << [
-            "    ## Fix      : #{ri.issue.ref}"
-            ]
-
-
-          # Find the fix
-          # TODO: This version assumes that for a given bm/issue the fix is the same for all nodes
-          #       This is a problem because fixes may depend on details about nodes (name, facts, etc).
-          #       And this creates a problem because there is then the need to create subsets of nodes
-          #       that share the very same fix.
-          #       The FixProvider should have the knowledge how to best compute the set of fixes, get details
-          #       about nodes etc.
-          #
-          # fixes is a hash of Set[String] => Fix
-          #
-          # TODO: find_fixes require benchmark facts
-          fixes = fix_provider.find_fixes(ri.issue, ri.nodes)
-
-          # TODO: check if any nodes from ri.nodes was left out of the returned sets.
-          #       those must be reported as "no fix found" (or error since provider is wrong).
-          #       Also, check for error of mapping one node to multiple fixes.
-          #       Solution: call a method to get and validate result.
-          #
-          # Optimize target variables - reuse already defined targets variable
-          fixes.keys.each_pair do |node_set, fix|
-            idx = node_set_index[node_set]
-            if idx.nil? && fix.requires_targets?
-              # Variable was not already defined - generate it, and remember that it was
-              idx = node_set_index.size
-              node_set_index[ri.nodes] = idx
-              result << [
-                "    #{target_var(idx)} = [" + ri.nodes.sort.join(', ') + "]"
-                ]
-            end
-            #   output code for the fix
-            if fix.requires_targets?
-              result << fix.to_pp(target_var(idx))
-            else
-              result << fix.to_pp()
+          # Indicate if issue is skipped or being fixed
+          if @ignored_issues.include?(ri.issue)
+            result << [
+              "",
+              "    # Issue    : #{ri.issue.ref}",
+              "    #          : ignored"
+              ]
+          else
+            result << [
+              "",
+              "    # Issue      : #{ri.issue.ref}",
+              "    #            : fixing"
+              ]
+  
+  
+            # Find the fix
+            # TODO: This version assumes that for a given bm/issue the fix is the same for all nodes
+            #       This is a problem because fixes may depend on details about nodes (name, facts, etc).
+            #       And this creates a problem because there is then the need to create subsets of nodes
+            #       that share the very same fix.
+            #       The FixProvider should have the knowledge how to best compute the set of fixes, get details
+            #       about nodes etc.
+            #
+            # fixes is a hash of Set[String] => Fix
+            #
+            # TODO: find_fixes require benchmark facts
+            fixes = @fix_provider.find_fixes(issue: ri.issue, nodes: ri.nodes, facts: {})
+  
+            # TODO: check if any nodes from ri.nodes was left out of the returned sets.
+            #       those must be reported as "no fix found" (or error since provider is wrong).
+            #       Also, check for error of mapping one node to multiple fixes.
+            #       Solution: call a method to get and validate result.
+            #
+            # Optimize target variables - reuse already defined targets variable
+            fixes.each_pair do |node_set, fix|
+              idx = node_set_index[node_set]
+              if idx.nil? && fix.requires_targets?
+                # Variable was not already defined - generate it, and remember that it was
+                idx = node_set_index.size
+                node_set_index[ri.nodes] = idx
+                result << [
+                  "    #{target_var(idx)} = [" + ri.nodes.sort.map {|n| n.inspect}.join(', ') + "]"
+                  ]
+              end
+              #   output code for the fix
+              if fix.requires_targets?
+                result << indent(fix.to_pp(target_var(idx)))
+              else
+                result << indent(fix.to_pp())
+              end
             end
           end
         end
       end
 
       # Output plan end
-      result << '}'
+      result << '}' << ''
       result.join("\n")
+    end
+
+    def indent(txt_array)
+      txt_array.map {|line| "  " + line }
     end
 
     # Returns the name to use for a target variable for node set index idx
     #
     def target_var(idx)
-      "$target_#{idx}"
+      "$targets_#{idx}"
     end
   end
 
@@ -214,8 +227,7 @@ module Model
         # TODO: v.inspect is a temporary crutch to get quoted strings 
         parts << parameters.map { |p, v| "'#{p}' => #{v.inspect}" }
       end
-      parts << ')'
-      [ parts.join(', ') ]
+      [ parts.join(', ') + ")"]
     end
   end
 
@@ -236,13 +248,13 @@ module Model
 
   class NoFix < SyntheticFix
     def to_pp()
-      ['  ## Unavailable : No fix defined for this issue!']
+      ['  # NO FIX     : No fix defined for this issue!']
     end
   end
 
   class SkippedFix < SyntheticFix
     def to_pp
-      ['  ## Skip        : Configured to be skipped!']
+      ['  # Skip       : Configured to be skipped!']
     end
   end
 
