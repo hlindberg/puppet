@@ -5,7 +5,7 @@ require 'puppet/parser/script_compiler'
 
 class Puppet::Application::Fix < Puppet::Application
 
-  require 'puppet/application/fix/fix_model'
+  require 'puppet/fix/fix_model'
 
   option("--debug","-d")
 
@@ -354,7 +354,7 @@ HELP
     # Set up known_benchmarks (can be loaded from the config) - later to (todo: somehow) be combined
     # with benchmarks delivered in modules.
     #
-    @benchmarks = (@fix_config['benchmarks'] || []).map {|b| Model::Benchmark.from_hash(b) }
+    @benchmarks = (@fix_config['benchmarks'] || []).map {|b| Puppet::Fix::Model::Benchmark.from_hash(b) }
 
     build_fixes(@fix_config['fixes'])
 
