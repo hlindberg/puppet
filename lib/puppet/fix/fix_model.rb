@@ -140,17 +140,17 @@ module Model
           if @ignored_issues.include?(ri.issue)
             result << [
               "",
-              "    # Issue    : #{ri.issue.ref}",
-              "    #          : ignored"
+              "    # Ignored Issue : #{ri.issue.ref}",
+              "    # Nodes         : #{ri.nodes.map {|n| n.inspect}.join(', ')}"
               ]
           else
             result << [
               "",
               "    # Issue      : #{ri.issue.ref}",
-              "    #            : fixing"
+              "    # Nodes      : #{ri.nodes.map {|n| n.inspect}.join(', ')}"
               ]
-  
-  
+
+
             # Find the fix
             # TODO: This version assumes that for a given bm/issue the fix is the same for all nodes
             #       This is a problem because fixes may depend on details about nodes (name, facts, etc).
@@ -163,7 +163,7 @@ module Model
             #
             # TODO: find_fixes require benchmark facts
             fixes = @fix_provider.find_fixes(issue: ri.issue, nodes: ri.nodes, facts: {})
-  
+
             # TODO: check if any nodes from ri.nodes was left out of the returned sets.
             #       those must be reported as "no fix found" (or error since provider is wrong).
             #       Also, check for error of mapping one node to multiple fixes.
@@ -240,21 +240,21 @@ module Model
     end
   end
 
-  class SyntheticFix < Fix
+  class InsteadOfFix < Fix
     def requires_targets?
       false
     end
   end
 
-  class NoFix < SyntheticFix
+  class NoFix < InsteadOfFix
     def to_pp()
       ['  # NO FIX     : No fix defined for this issue!']
     end
   end
 
-  class SkippedFix < SyntheticFix
+  class SkippedFix < InsteadOfFix
     def to_pp
-      ['  # Skip       : Configured to be skipped!']
+      ['  # Skipped    : Configured to be skipped!']
     end
   end
 
