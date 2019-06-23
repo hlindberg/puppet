@@ -212,7 +212,7 @@ module Model
     def format_with_params(*parts)
       unless parameters.empty?
         # TODO: v.inspect is a temporary crutch to get quoted strings 
-        parts << params.map { |p, v| "'#{p}' => #{v.inspect}" }
+        parts << parameters.map { |p, v| "'#{p}' => #{v.inspect}" }
       end
       parts << ')'
       [ parts.join(', ') ]
@@ -236,25 +236,25 @@ module Model
 
   class NoFix < SyntheticFix
     def to_pp()
-      ["  ## Unavailable : No fix defined for this issue!"]
+      ['  ## Unavailable : No fix defined for this issue!']
     end
   end
 
   class SkippedFix < SyntheticFix
     def to_pp
-      ["  ## Skip        : Configured to be skipped!"]
+      ['  ## Skip        : Configured to be skipped!']
     end
   end
 
   class PlanFix < NamedFix
-    def to_pp(targets)
-      format_with_params("run_plan('#{name}'", targets_var_name)
+    def to_pp(targets_var_name)
+      format_with_params("  run_plan('#{name}'", targets_var_name)
     end
   end
 
   class TaskFix < NamedFix
     def to_pp(targets_var_name)
-      format_with_params("run_task('#{name}'", targets_var_name)
+      format_with_params("  run_task('#{name}'", targets_var_name)
     end
   end
 
@@ -267,7 +267,7 @@ module Model
     end
 
     def to_pp(targets_var_name)
-      format_with_params("run_command('#{command_string}'", targets_var_name)
+      format_with_params("  run_command('#{command_string}'", targets_var_name)
     end
   end
 
@@ -296,12 +296,6 @@ module Model
     def all_facts
       @all_facts ||= (facts || { } ).merge({'benchmark' => { 'id' => id, 'name' => name, 'version' => version, 'family' => family }})
     end
-
-#    private:
-#    def build_all_facts
-#      tmp = facts || {}
-#      tmp.merge {'benchmark' => { 'id' => id, 'name' => name, 'version' => version, 'family' => family }}
-#    end
   end
 
   class Issue
@@ -389,32 +383,6 @@ module Model
       @nodes_cache ||= @nodes.dup.freeze
     end
   end
-
-#  class Node
-#    attr_reader :name
-#    def initialize(name:)
-#      @name = name
-#    end
-#  end
-#
-#  class Report
-#    attr_reader :issues # Hash of issue ref string to Issue
-#    attr_reader :nodes # Hash of node name to Node
-#    attr_reader :node_sets # Array of Set of node names
-#    def initialize
-#      @issues = {}
-#      @nodes = {}
-#      @node_sets = []
-#    end
-#
-#    def add_node(n)
-#      @nodes[n.name] = n
-#    end
-#
-#    def add_issue(issue)
-#      @issues[issue.ref] = issue
-#    end
-#  end
 
 end
 end
