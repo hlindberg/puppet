@@ -2,7 +2,7 @@ require 'puppet/application'
 require 'puppet/configurer'
 require 'puppet/util/profiler/aggregate'
 require 'puppet/parser/script_compiler'
-require 'puppet/fix/fix_model'
+require 'puppet/fix'
 
 class Puppet::Application::Fix < Puppet::Application
 
@@ -178,25 +178,7 @@ Copyright (c) 2019 Puppet Inc., LLC Licensed under the Apache 2.0 License (??)
 HELP
   end
 
-  attr_reader :fix_config
-  attr_reader :known_benchmarks
-
   def run_command
-
-    if options[:issue] && options[:issues_file]
-      raise ArgumentError, "--issue and --issues_file cannot be used at the same time"
-    end
-
-    # Needed if fix is going to call Bolt directly
-    #
-    #    if Puppet.features.bolt?
-    #      Puppet.override(:bolt_executor => Bolt::Executor.new) do
-    #        main
-    #      end
-    #    else
-    #      raise _("Bolt must be installed to use the script application")
-    #    end
-
     # For now, just call main
     main
   end
@@ -205,37 +187,16 @@ HELP
     # The tasks feature is always on
     Puppet[:tasks] = true
 
-    if options[:issue]
-      parsed_issue = options[:issue]
-      issues = [ {
-        'issue'  => parsed_issue.without_node,
-        'nodes' => [ parsed_issue.node || 'example.com']
-      }]
-    elsif options[:issues_file]
-      issues = parse_issues_file(options[:issues_file])
-    else
-      raise ArgumentError, "No issue was given, use --issue or --issues_file"
-    end
+    controller = Puppet::Fix::FixController.new
 
-    # Needs config "plan_name" or use default if not given)
-    # Needs a FixProvider - for now only supporting a StaticFixProvider read from settings
-    # TODO: Copy the logic called from setup to a loader/StaticFixProvider, and initialize it here
-    #       Worry about the next step later.
-    # TODO: Get plan name from command options, or settings
-    #
-    @plan_builder = Puppet::Fix::Model::PlanBuilder.new( fix_provider: StaticFixProvider.new(@fixes), plan_name: options[:plan])
+    # only pass options the controller understands
+    controller_options = options.select {|k,_| [
+        :issue,
+        :issues_file,
+        :plan_name
+      ].include?(k) }
 
-    # Tell plan builder about available benchmarks
-    @benchmarks.each { |bm| @plan_builder.add_benchmark(bm) }
-
-    @reported_issues.each do | reported |
-      reported['issues'].each do | issue |
-        @plan_builder.add_reported_issue(issue, *reported['nodes'])
-      end
-    end
-
-    # Add all reported issues
-    puts @plan_builder.produce_plan()
+    controller.run(**controller_options)
 
     # Stop here for now
     return
@@ -343,19 +304,6 @@ HELP
   end
 
   def setup
-    # Configuration
-    # -------------
-
-    # Read config file
-    @fix_config = load_config
-
-    # Set up known_benchmarks (can be loaded from the config) - later to (todo: somehow) be combined
-    # with benchmarks delivered in modules.
-    #
-    @benchmarks = (@fix_config['benchmarks'] || []).map {|b| Puppet::Fix::Model::Benchmark.from_hash(b) }
-
-    build_fixes(@fix_config['fixes'])
-
     # TODO: Should read and print its own configuration (in addition to puppet's)
     # exit(Puppet.settings.print_configs ? 0 : 1) if Puppet.settings.print_configs?
 
@@ -378,273 +326,4 @@ HELP
     end
   end
 
-  # Loads the fix specific configuration from a file in current directory and returns a hash of
-  # settings.
-  #
-  def load_config
-    # TODO: This is obviously very simplistic, and the file should be named something else
-    # There should be a way to point to the config as well.
-    #
-    begin
-      return YAML.load_file("fixconf.yaml")
-    rescue Errno::ENOENT => e
-      # No config file - ignore
-      # Return a default config - an empty hash
-    end
-    {}
-  end
-
-  # Parses an issue string consisting of <mnemonic>::<section>[_.]<name>
-  # where:
-  # * mnemonic is alphanumeric, starting with a letter
-  # * section is a sequence of decimal digits separated by '.' or '_'
-  # * name is any string until end of string after a separator of '_' or '.'
-  #
-  # Returns  an Issue with the corresponding entries as string keys
-  #
-  def parse_issue(issue_string)
-    Puppet::Fix::Model::Issue.parse_issue(issue_string)
-  end
-
-  # Parses the given file_name and validates its "issues on nodes" content
-  #
-  def parse_issues_file(file_name)
-    loaded = YAML.load_file(file_name)
-    @reported_issues = validate_and_normalize_issues_file(loaded, file_name)
-  end
-
-  # Validates issue_file type content coming from a given location (filename; is only for reporting/ reference).
-  # This also normalizes constructs like node/nodes into nodes.
-  #
-  def validate_and_normalize_issues_file(data, source_location)
-    # Top level is either a hash with keys 'nodes'/'node' and 'issue/issues', or an Array of such hashes
-    #
-    data = [data] unless data.is_a?(Array)
-    unless data.all? {|x| x.is_a?(Hash) }
-      raise "--issues_file #{source_location} must be a hash or array of hashes, got a nested array"
-    end
-    data.each_with_index do | section, i |
-
-      ## -- NODE / NODES
-      #     Must have a node, or list of nodes
-
-      node = section['node']
-      nodes = section['nodes']
-      if node && nodes
-        raise "--issues_file #{source_location} at index #{i} uses both 'node' and 'nodes' - both not allowed at the same time."
-      end
-      if !(node || nodes)
-        # Alternatively, allow this to end up reporting "no node had issue..."
-        raise "--issues_file #{source_location} at index #{i} must contain either 'node' or 'nodes'"
-      end
-
-      if nodes
-        if !nodes.is_a?(Array)
-          raise "--issues_file #{source_location} at index #{i} has a 'nodes' entry that is not an array"
-        end
-      else
-        # Normalize node to be nodes: [node]
-        nodes = section['nodes'] = [node]
-        section.delete('node')
-      end
-
-      # validate the node names
-      # TODO: should probably strip them as well
-      unless nodes.all? {|n| n.is_a?(String) && n =~ /[a-zA-Z0-9]/ }
-        raise "--issues_file #{source_location} at index #{i} The node name '#{node}' is not acceptable as the name of a node"
-      end
-
-      ## -- ISSUE / ISSUES
-      #     One of 'issue' or 'issues' normalized to 'issues' an array of issue reference strings
-
-      the_issues = section['issues']
-      the_issue = section['issue']
-      if the_issue && the_issues
-        raise "--issues_file #{source_location} at index #{i} uses both 'issue' and 'issues' - both not allowed at the same time."
-      end
-      if !(the_issue || the_issues)
-        raise "--issues_file #{source_location} at index #{i} must contain either 'issue' or 'issues'"
-      end
-
-      if the_issues
-        if !the_issues.is_a?(Array)
-          raise "--issues_file #{source_location} at index #{i} has an 'issues' entry that is not an array"
-        end
-      else
-        # Normalize 'issue' to be issues: [issue, ...]
-        the_issues = section['issues'] = [the_issue]
-        section.delete('issue')
-      end
-
-      section['issues'] = the_issues.each_with_index.map do |issue, ii|
-        the_issue = parse_issue(issue)
-        unless the_issue.section
-          raise "--issues_file #{source_location} at index #{i}, issue[#{ii}] must contain 'section'"
-        end
-
-        unless the_issue.mnemonic
-          raise "--issues_file #{source_location} at index #{i}, issue[#{ii}] must reference a benchmark."
-        end
-        # Map to the parsed and validated value
-        the_issue
-      end
-    end
-  end
-
-  class StaticFixProvider
-    def initialize(fixes_map)
-      @fixmap = fixes_map
-    end
-
-    def find_fixes(issue: issue, nodes: nodes, facts: {})
-      require 'byebug'; debugger
-        { nodes => @fixmap[issue] || Puppet::Fix::Model::NoFix.new }
-    end
-  end
-
-  def build_fixes(fixes_array)
-    @fixes = {}
-    return if fixes_array.nil?
-    fixes_array.each do | fix_map |
-      the_fix     = fix_map['fix'] or raise ArgumentError.new("A fix must be one of 'task', 'plan', or 'command' - got neither.")
-
-      fix =
-      if the_fix['task']
-        Puppet::Fix::Model::TaskFix.new(the_fix['task'], the_fix['parameters'])
-
-      elsif the_fix['plan']
-        Puppet::Fix::Model::PlanFix.new(the_fix['plan'], the_fix['parameters'])
-
-      elsif the_fix['command']
-        Puppet::Fix::Model::CommandFix.new(the_fix['command_string'], the_fix['parameters'])
-      end
-
-      if fix.nil?
-        raise ArgumentError.new("A fix must be one of 'task', 'plan', or 'command' - got neither.")
-      end
-
-      the_issue   = Puppet::Fix::Model::Issue.new(
-        mnemonic: fix_map['benchmark:'] || @fix_config['default_benchmark'],
-        section:  fix_map['section'],
-        name:     fix_map['name']
-        )
-
-      @fixes[the_issue] = fix
-    end
-  end
-
-#  def build_fixes(fixes_array)
-#    @fixes = {}
-#    return if fixes_array.nil?
-#    fixes_array.each do | fix |
-#      f = Fix.new(fix)
-#      @fixes[f.section] = f
-#    end
-#  end
-
-#  def find_fix(issue)
-#    # Find a corresponding fix, using section as key
-#    # TODO: possibly, if section is missing, use the name instead
-#
-#    # For now, the fixes are in settings, later composed differently using hiera
-#    raise "No fixes found" if @fixes.empty?
-#
-#    @fixes[issue['section']] || NOFIX
-#  end
-
-  class Fix
-    attr_reader :fix_map
-
-    def initialize(fix_map)
-      @fix_map = fix_map
-    end
-
-    def section
-      @fix_map['section']
-    end
-
-    def name
-      @fix_map['name']
-    end
-
-    def to_pp(target_spec_name)
-      the_fix = @fix_map['fix'] || {}
-      if the_fix['task']
-        task_to_pp(the_fix, target_spec_name)
-      elsif  the_fix['command']
-        command_to_pp(the_fix, target_spec_name)
-      elsif the_fix['plan']
-        plan_to_pp(the_fix, target_spec_name)
-      else
-        "# No fix available"
-      end
-    end
-
-    def command_to_pp(the_command, target_spec)
-      command_string = the_command['command_string']
-      parts = [
-        "run_command('#{command_string}'",
-        "${target_spec}",
-      ] << the_command['params'].map do |p, v|
-        "'#{p}' => #{v.inspect}" # TODO: v.inspect is a temporary crutch to get quoted strings
-      end << ")"
-      parts.join(", ")
-    end
-
-    def plan_to_pp(the_plan, target_spec)
-      plan_name = the_plan['plan']
-      parts = [
-        "run_plan('#{plan_name}'",
-        "nodes => ${target_spec}",
-      ] << the_plan['params'].map do |p, v|
-        "'#{p}' => #{v.inspect}" # TODO: v.inspect is a temporary crutch 
-      end << ")"
-      parts.join(", ")
-    end
-
-    def task_to_pp(the_task, target_spec)
-      task_name = the_task['task']
-      parts = [
-        "run_task('#{task_name}'",
-        "nodes => $#{target_spec}",
-      ] << the_task['params'].map do |p, v|
-        "'#{p}' => #{v.inspect}" # TODO: v.inspect is a temporary crutch 
-      end << ")"
-      parts.join(", ")
-    end
-  end
-
-  NOFIX = Fix.new({})
-
-  # Gets Benchmark object by mnemonic
-  #
-  def get_benchmark(mnemonic)
-    @benchmarks.find(mnemonic) {|b| b.name == mnemonic }
-  end
-
-  def produce_plan(plan_name, reported_issues)
-    return '' if reported_issues.nil?
-    # For each issue
-    # Find the fix
-    # Output the fix
-    the_app = self
-    template = ERB.new(<<-EOF)
-## Puppet Fix generated remediation plan
-## Created on <%= Time.now %>
-##
-plan <%= plan_name %>() { <%
-  reported_issues.each_with_index do | report, index |
-    joined_nodes = report['nodes'].map {|n| n.inspect }.join(", ") %>
-  # Benchmark: <%= report['benchmark'] %>
-  $targets_<%= index %> = [ <%= joined_nodes %> ] <%
-  report['issues'].each do | entry |
-     result = the_app.find_fix(entry['issue']).to_pp(sprintf("targets_%s", index)) %>
-  # Section: <%= entry['issue']['section'] %>
-  # name: <%= entry['issue']['name'] %> 
-  <%= result %>
-<% end end %>
-}
-EOF
-    template.result(binding)
-  end
 end
