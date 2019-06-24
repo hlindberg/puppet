@@ -38,8 +38,8 @@ module Model
     # Creates a new PlanBuilder
     # Will use the given `fix_provider` to get fixes for issues that needs one
     #
-    def initialize(fix_provider, plan_name = DEFAULT_PLAN_NAME)
-      @fix_provider = fix_provider
+    def initialize(fix_provider: nil, plan_name: DEFAULT_PLAN_NAME)
+      @fix_provider = fix_provider || NoFixProvider.new
       @issues = Set.new
       @benchmarks = {}
       @ignored_issues = Set.new
@@ -123,12 +123,18 @@ module Model
         ]
 
       # Iterate over all
+      first_benchmark = true
       sorted_reported.each do |the_issue, ri_array|
         ri_array.each do |ri|
           # On new benchmark, output benchmark header
           if ri.issue.mnemonic != prev_bm
             prev_bm = ri.issue.mnemonic
             bm = @benchmarks[prev_bm]
+            if !first_benchmark
+              result << ''
+            else
+              first_benchmark = false
+            end
             result << [
               "    ## Benchmark: #{bm.name}",
               "    ## Version  : #{bm.version}",
@@ -207,6 +213,14 @@ module Model
     end
   end
 
+  # Returns NoFix for all issues
+  #
+  class NoFixProvider
+    def find_fix_for(issue, nodes)
+      { NoFix.new => nodes }
+    end
+  end
+
   class Fix
     def requires_targets?
       true
@@ -217,6 +231,10 @@ module Model
     attr_reader :parameters
 
     def initialize(parameters={})
+      unless parameters.is_a?(Hash)
+        raise ArgumentError, "The parameters of a Fix must be a hash, got #{parameters.class}"
+      end
+
       @parameters = parameters
     end
 
@@ -236,6 +254,9 @@ module Model
 
     def initialize(name, parameters={})
       super(parameters)
+      unless name.is_a?(String) && !name.empty?
+        raise ArgumentError, "The name of a Fix must be a non empty string, got #{name.class}"
+      end
       @name = name
     end
   end
@@ -315,27 +336,38 @@ module Model
     attr_reader :section
     attr_reader :name
     attr_reader :ref # The issue ref string
+    attr_reader :node
 
-    def initialize(mnemonic: nil, section: nil, name: nil)
+    def initialize(mnemonic: nil, node: nil, section: nil, name: nil)
       @mnemonic = mnemonic.freeze
       @section = section.freeze
       @name = name.freeze
+      @node = node.freeze
     end
 
     def ref
-      @ref ||= "#{@mnemonic}::#{@section}_#{@name}".freeze
+      @ref ||= (node ?
+          "#{@mnemonic}://#{node}/#{@section}_#{@name}"
+        : "#{@mnemonic}:/#{@section}_#{@name}"
+      ).freeze
+    end
+
+    def without_node
+      return self unless node
+      self.new(mnemonic: mnemonic, section: section, name: name)
     end
 
     # Can be used as key in a hash
     #
     def hash
-      @hash ||= ref.hash
+      @hash ||= mnemonic.hash ^ section.hash ^ node.hash
     end
 
-    # Is equal to another issue
-    # 
+    # Is equal to another issue with same benchmark, node, and section
+    # (The name is ignored to avoid having to state it everywhere)
+    # TODO: possibly enforce that "no name" matches any name, but that names must match
     def eql?(o)
-      o.is_a?(Issue) && ref == o.ref
+      o.is_a?(Issue) && mnemonic == o.mnemonic && section == o.section && node == o.node
     end
     alias == eql?
 
@@ -350,21 +382,35 @@ module Model
     def self.parse_issue(issue_string)
       return self.new unless issue_string.is_a?(String)
 
-      regexp = /\A(?:(?<mnemonic>[A-Za-z][A-Za-z0-9_-]*(::[A-Za-z][A-Za-z0-9_-]*)?)::)?(?<section>[0-9](?:[._][0-9])*)?[._-]?(?<name>.+)?/
-      matches = issue_string.match(regexp)
+      # must be a valid URI
+      uri = URI.parse(issue_string)
+      unless uri.hierarchical?
+        raise "Issue string does not have the correct form (must be in the form of a hierarchical URI"
+      end
+
+      mnemonic = uri.scheme
+      node = uri.hostname
+      path = uri.path
+
+      # extract the section and any name/text after section
+      #
+      regexp = /\A(?:[\/]*)(?<section>[0-9]+(?:[._-][0-9]+)*)?[._-]?(?<name>.+)?/
+
+      #regexp = /\A(?:(?<mnemonic>[A-Za-z][A-Za-z0-9_-]*(::[A-Za-z][A-Za-z0-9_-]*)?)::)?(?<section>[0-9](?:[._][0-9])*)?[._-]?(?<name>.+)?/
+      matches = path.match(regexp)
       captured = matches ? matches.named_captures : { }
       # Normalize the section
       unless captured['section'].nil?
-        captured['section'].gsub!(/_/,'.')
+        captured['section'].gsub!(/[_-]/,'.')
       end
-      self.new_from_hash(captured)
+      self.new_from_hash(captured.merge({ 'mnemonic' => mnemonic, 'node' => node}))
     end
 
     def self.new_from_hash(hash)
       unless hash.is_a?(Hash)
         raise ArgumentError, "Attempt to create an Issue from something that is not a hash. Got '#{hash.class}'."
       end
-      self.new(mnemonic: hash['mnemonic'], section: hash['section'], name: hash['name'])
+      self.new(mnemonic: hash['mnemonic'], section: hash['section'], name: hash['name'], node: hash['node'])
     end
 
   end

@@ -2,23 +2,29 @@ require 'puppet/application'
 require 'puppet/configurer'
 require 'puppet/util/profiler/aggregate'
 require 'puppet/parser/script_compiler'
+require 'puppet/fix/fix_model'
 
 class Puppet::Application::Fix < Puppet::Application
-
-  require 'puppet/fix/fix_model'
 
   option("--debug","-d")
 
   option("--issue ISSUE", "-i") do |arg|
-    options[:issue] = arg
+    options[:issue] = the_issue = parse_issue(arg)
+    unless the_issue.mnemonic && the_issue.section
+      raise "Given issue must reference a benchmark and contain the section"
+    end
+  end
+
+  option("--plan NAME", "-p") do |arg|
+    options[:plan_name] = arg
   end
 
   option("--file FILE", "-f") do |arg|
     options[:issues_file] = arg
   end
 
-  option("--test","-t")
-  option("--verbose","-v")
+#  option("--test","-t")
+#  option("--verbose","-v")
 
   option("--logdest LOGDEST", "-l") do |arg|
     handle_logdest_arg(arg)
@@ -36,23 +42,26 @@ puppet-fix(8) -- #{summary}
 
 SYNOPSIS
 --------
-  Produces remediation fixes for issues found when scanning for vulnerabilities.
+  Produces remediation fixes for issues found when scanning for benchmark compliance, or vulnerabilities
 
 
 USAGE
 -----
-puppet script [-h|--help] [-V|--version] [-d|--debug]
-  [-i|--issue] [-f|--issue_file]
+puppet fix [-h|--help] [-V|--version] [-d|--debug]
+  [-i|--issue] [-if|--issues_file]
   [-v|--version]
+  [-p|--plan]
   [-l|--logdest syslog|eventlog|<FILE>|console] [--noop]
   <file>
 
 
 DESCRIPTION
 -----------
-Puppet fix can produce remediation fixes for known found (or explicitly given) issues, such as vulnerabilities.
-When provided with a modulepath, via command line or config file, Puppet
-Fix can load remediation fixes, functions, types, tasks and plans from modules.
+Puppet fix can produce remediation fixes for known found (or explicitly given) issues, such as
+benchmark "controls", or "vulnerabilities".
+
+# TBD: When provided with a modulepath, via command line or config file, Puppet
+# Fix can load remediation fixes, functions, types, tasks and plans from modules.
 
 Currently it offers output of instructions how to run an available fix given the id
 of an issue (i.e. benchmark, vulnerability, issue).
@@ -71,58 +80,56 @@ from modules not containing fixmaps.
 
 Benchmark ID
 ------------
-The fully qualified benchmark ID is something like:
+A fully qualified issue is something like:
 
 xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark/1.1.1.1_Ensure_mounting_of_cramfs_filesystem_is_disabled
 
 Which is a horribly long thing to work with on the command line, and to use to switch between data sets in hiera.
-When feeding a result from a scan, these identifiers are obtained from the result file. For command line work it is possible to provide short
-form names that are read from a configuration file.
+When feeding a result from a scan, these identifiers are obtained from the result file. For command line work it is possible to provide
+short-form names that are read from a configuration file.
 
 Benchmark identifiers also needs to be mapped to canonical values to be used in hiera as standardized by Facter facts.
 
 ---
 benchmarks:
-  - id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark"
+  - 
+    benchmark:
+      id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark"  version: "2.2.0.1"
+      name: "cis-rhel7"
+      family: "cis"
     facts: {
-      benchmark: {
-        version: "2.2.0.1"
-        name: "cis_rhel7"
-        family: "cis"
-      }
-      os: {
+      os:
         name: "RedHat"
         family: "RedHat"
-        release: {
+        release:
           full: "7.2.1511"
           major: "7"
           minor: "2"
-        }
-      }
-    }
-  - "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_8_Benchmark"
-    benchmark_name: "cis_rhel8"
-    # rest as for rhel7
 
-# Configure a default so this does not have to be given
-default_benchmark: "rhel7"
+  - benchmark:
+      id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_8_Benchmark"
+      name: "cis-rhel8"
+      # rest as for rhel7
 
-This makes it possible to identify benchmarks as 'cis_rhel7', 'cis_rhel8', etc. and also provides the variable values for switching
+
+This makes it possible to identify benchmarks as 'cis-rhel7', 'cis-rhel8', etc. and also provides the variable values for switching
 data sets and mappings in hiera. The setting 'default_benchmark' makes it possible to just give the name of the benchmark check/rule.
 
 OPTIONS
 -------
-* --issue
-  The single issue for which some action is wanted. It is given on the form <mnemonic>::<section><name>. Mutually exclusive with --issues_file.
+* --issue, -i
+  The single issue for which some action is wanted. It is given on the form <mnemonic>::<section><name>.
+  Mutually exclusive with --issues_file.
 
-* --issues_file
-  A yaml file with none/one or more issues for which some action is wanted. Mutually exclusive with --issue. (Not yet implemented)
+* --issues_file, -if
+  A yaml file with none/one or more issues for which some action is wanted.
+  Mutually exclusive with --issue.
 
 * --version:
   The version of the benchmark for which the given --benchmark is a reference into.
 
-* --benchmark
-  The identity of the benchmark for which a fix is wanted
+* --plan
+  The name of the plan. Defaults to `generated_plan`
 
 Note that any setting that's valid in the configuration
 file is also a valid long argument. For example, 'environment' is a
@@ -154,17 +161,10 @@ configuration options can also be generated by running puppet with
   A path ending with '.jsonl' will receive structured output in JSON Lines
   format.
 
-* --noop:
-  Use 'noop' mode where Puppet runs in a no-op or dry-run mode. This
-  is useful for seeing what changes Puppet will make without actually
-  executing the changes. Applies to tasks only.
-
 EXAMPLES
 --------
-    $ puppet fix -i cis::1.1.1.1_Ensure_mounting_of_cramfs_filesysten_is_disabled
-    $ puppet fix -i cis::Ensure_mounting_of_cramfs_filesysten_is_disabled
-    $ puppet fix --modulepath=/root/dev/modules -e 'notice("hello world")'
-
+    $ puppet fix -i cis-rhel7:/1.1.1.1_Ensure_mounting_of_cramfs_filesysten_is_disabled
+    $ puppet fix -i cis-rhel7:/1.1.1.1
 
 AUTHOR
 ------
@@ -173,32 +173,29 @@ Henrik Lindberg
 
 COPYRIGHT
 ---------
-Copyright (c) 2019 Puppet Inc., LLC Licensed under the Apache 2.0 License
+Copyright (c) 2019 Puppet Inc., LLC Licensed under the Apache 2.0 License (??)
 
 HELP
   end
-
-# Not needed - super version is fine
-#  def app_defaults
-#    super.merge({
-#      :default_file_terminus => :file_server,
-#    })
-#  end
 
   attr_reader :fix_config
   attr_reader :known_benchmarks
 
   def run_command
 
+    if options[:issue] && options[:issues_file]
+      raise ArgumentError, "--issue and --issues_file cannot be used at the same time"
+    end
+
     # Needed if fix is going to call Bolt directly
     #
-#    if Puppet.features.bolt?
-#      Puppet.override(:bolt_executor => Bolt::Executor.new) do
-#        main
-#      end
-#    else
-#      raise _("Bolt must be installed to use the script application")
-#    end
+    #    if Puppet.features.bolt?
+    #      Puppet.override(:bolt_executor => Bolt::Executor.new) do
+    #        main
+    #      end
+    #    else
+    #      raise _("Bolt must be installed to use the script application")
+    #    end
 
     # For now, just call main
     main
@@ -208,134 +205,135 @@ HELP
     # The tasks feature is always on
     Puppet[:tasks] = true
 
-    parsed_issue = options[:parsed_issue] = parse_issue(options[:issue])
-
-    # TODO: if no --issue was given and instead an --issues_file is given, then it should loop over
-    # the issues in that file. If both --issue and --issues_file are given at the same time then it should error.
-    #
-    #
-    if options[:issue] && options[:issues_file]
-      raise ArgumentError, "--issue and --issues_file cannot be used at the same time"
-    end
-
     if options[:issue]
-      # Check that some input was given
-      # A mnemonic (if not given, the default value for it from settings)
-      # Either a section or a name (both are ok)
-      #
-      mnemonic = parsed_issue['mnemonic'] || @fix_config['default_benchmark']
-      if mnemonic.nil?
-        raise ArgumentError, "No benchmark was given and 'default_benchmark' is not set"
-      end
-
-      unless parsed_issue['section'] || parsed_issue['name']
-        raise ArgumentError, "No reference to an issue was given, needs either a <section> or a <name> to match against"
-      end
+      parsed_issue = options[:issue]
+      issues = [ {
+        'issue'  => parsed_issue.without_node,
+        'nodes' => [ parsed_issue.node || 'example.com']
+      }]
     elsif options[:issues_file]
       issues = parse_issues_file(options[:issues_file])
     else
       raise ArgumentError, "No issue was given, use --issue or --issues_file"
     end
 
-    puts produce_plan("my::testplan", issues)
+    # Needs config "plan_name" or use default if not given)
+    # Needs a FixProvider - for now only supporting a StaticFixProvider read from settings
+    # TODO: Copy the logic called from setup to a loader/StaticFixProvider, and initialize it here
+    #       Worry about the next step later.
+    # TODO: Get plan name from command options, or settings
+    #
+    @plan_builder = Puppet::Fix::Model::PlanBuilder.new( fix_provider: StaticFixProvider.new(@fixes), plan_name: options[:plan])
+
+    # Tell plan builder about available benchmarks
+    @benchmarks.each { |bm| @plan_builder.add_benchmark(bm) }
+
+    @reported_issues.each do | reported |
+      reported['issues'].each do | issue |
+        @plan_builder.add_reported_issue(issue, *reported['nodes'])
+      end
+    end
+
+    # Add all reported issues
+    puts @plan_builder.produce_plan()
 
     # Stop here for now
     return
 
-    # Set the puppet code or file to use.
-    if options[:code] || command_line.args.length == 0
-      Puppet[:code] = options[:code] || STDIN.read
-    else
-      manifest = command_line.args.shift
-      raise _("Could not find file %{manifest}") % { manifest: manifest } unless Puppet::FileSystem.exist?(manifest)
-      Puppet.warning(_("Only one file can be used per run. Skipping %{files}") % { files: command_line.args.join(', ') }) if command_line.args.size > 0
-    end
-
-    unless Puppet[:node_name_fact].empty?
-      # Collect the facts specified for that node
-      unless facts = Puppet::Node::Facts.indirection.find(Puppet[:node_name_value])
-        raise _("Could not find facts for %{node}") % { node: Puppet[:node_name_value] }
-      end
-
-      Puppet[:node_name_value] = facts.values[Puppet[:node_name_fact]]
-      facts.name = Puppet[:node_name_value]
-    end
-
-    # Find the Node
-    unless node = Puppet::Node.indirection.find(Puppet[:node_name_value])
-      raise _("Could not find node %{node}") % { node: Puppet[:node_name_value] }
-    end
-
-    configured_environment = node.environment || Puppet.lookup(:current_environment)
-
-    apply_environment = manifest ?
-      configured_environment.override_with(:manifest => manifest) :
-      configured_environment
-
-    # Modify the node descriptor to use the special apply_environment.
-    # It is based on the actual environment from the node, or the locally
-    # configured environment if the node does not specify one.
-    # If a manifest file is passed on the command line, it overrides
-    # the :manifest setting of the apply_environment.
-    node.environment = apply_environment
-
-    # TRANSLATION, the string "For puppet script" is not user facing
-    Puppet.override({:current_environment => apply_environment}, "For puppet script") do
-      # Merge in the facts.
-      node.merge(facts.values) if facts
-
-      # Add server facts so $server_facts[environment] exists when doing a puppet script
-      # SCRIPT TODO: May be needed when running scripts under orchestrator. Leave it for now.
-      #
-      node.add_server_facts({})
-
-      begin
-        # Compile the catalog
-
-        # When compiling, the compiler traps and logs certain errors
-        # Those that do not lead to an immediate exit are caught by the general
-        # rule and gets logged.
-        #
-        begin
-          # support the following features when evaluating puppet code
-          # * $facts with facts from host running the script
-          # * $settings with 'settings::*' namespace populated, and '$settings::all_local' hash
-          # * $trusted as setup when using puppet apply
-          # * an environment
-          #
-
-          # fixup trusted information
-          node.sanitize()
-
-          compiler = Puppet::Parser::ScriptCompiler.new(node.environment, node.name)
-          topscope = compiler.topscope
-
-          # When scripting the trusted data are always local, but set them anyway
-          topscope.set_trusted(node.trusted_data)
-
-          # Server facts are always about the local node's version etc.
-          topscope.set_server_facts(node.server_facts)
-
-          # Set $facts for the node running the script
-          facts_hash = node.facts.nil? ? {} : node.facts.values
-          topscope.set_facts(facts_hash)
-
-          # create the $settings:: variables
-          topscope.merge_settings(node.environment.name, false)
-
-          compiler.compile()
-
-        rescue Puppet::ParseErrorWithIssue, Puppet::Error
-          # already logged and handled by the compiler for these two cases
-          exit(1)
-        end
-
-        exit(0)
-      rescue => detail
-        Puppet.log_exception(detail)
-        exit(1)
-      end
-    end
+#    # Set the puppet code or file to use.
+#    if options[:code] || command_line.args.length == 0
+#      Puppet[:code] = options[:code] || STDIN.read
+#    else
+#      manifest = command_line.args.shift
+#      raise _("Could not find file %{manifest}") % { manifest: manifest } unless Puppet::FileSystem.exist?(manifest)
+#      Puppet.warning(_("Only one file can be used per run. Skipping %{files}") % { files: command_line.args.join(', ') }) if command_line.args.size > 0
+#    end
+#
+#    unless Puppet[:node_name_fact].empty?
+#      # Collect the facts specified for that node
+#      unless facts = Puppet::Node::Facts.indirection.find(Puppet[:node_name_value])
+#        raise _("Could not find facts for %{node}") % { node: Puppet[:node_name_value] }
+#      end
+#
+#      Puppet[:node_name_value] = facts.values[Puppet[:node_name_fact]]
+#      facts.name = Puppet[:node_name_value]
+#    end
+#
+#    # Find the Node
+#    unless node = Puppet::Node.indirection.find(Puppet[:node_name_value])
+#      raise _("Could not find node %{node}") % { node: Puppet[:node_name_value] }
+#    end
+#
+#    configured_environment = node.environment || Puppet.lookup(:current_environment)
+#
+#    apply_environment = manifest ?
+#      configured_environment.override_with(:manifest => manifest) :
+#      configured_environment
+#
+#    # Modify the node descriptor to use the special apply_environment.
+#    # It is based on the actual environment from the node, or the locally
+#    # configured environment if the node does not specify one.
+#    # If a manifest file is passed on the command line, it overrides
+#    # the :manifest setting of the apply_environment.
+#    node.environment = apply_environment
+#
+#    # TRANSLATION, the string "For puppet script" is not user facing
+#    Puppet.override({:current_environment => apply_environment}, "For puppet script") do
+#      # Merge in the facts.
+#      node.merge(facts.values) if facts
+#
+#      # Add server facts so $server_facts[environment] exists when doing a puppet script
+#      # SCRIPT TODO: May be needed when running scripts under orchestrator. Leave it for now.
+#      #
+#      node.add_server_facts({})
+#
+#      begin
+#        # Compile the catalog
+#
+#        # When compiling, the compiler traps and logs certain errors
+#        # Those that do not lead to an immediate exit are caught by the general
+#        # rule and gets logged.
+#        #
+#        begin
+#          # support the following features when evaluating puppet code
+#          # * $facts with facts from host running the script
+#          # * $settings with 'settings::*' namespace populated, and '$settings::all_local' hash
+#          # * $trusted as setup when using puppet apply
+#          # * an environment
+#          #
+#
+#          # fixup trusted information
+#          node.sanitize()
+#
+#          compiler = Puppet::Parser::ScriptCompiler.new(node.environment, node.name)
+#          topscope = compiler.topscope
+#
+#          # When scripting the trusted data are always local, but set them anyway
+#          topscope.set_trusted(node.trusted_data)
+#
+#          # Server facts are always about the local node's version etc.
+#          topscope.set_server_facts(node.server_facts)
+#
+#          # Set $facts for the node running the script
+#          facts_hash = node.facts.nil? ? {} : node.facts.values
+#          topscope.set_facts(facts_hash)
+#
+#          # create the $settings:: variables
+#          topscope.merge_settings(node.environment.name, false)
+#
+#          compiler.compile()
+#
+#        rescue Puppet::ParseErrorWithIssue, Puppet::Error
+#          # already logged and handled by the compiler for these two cases
+#          exit(1)
+#        end
+#
+#        exit(0)
+#      rescue => detail
+#        Puppet.log_exception(detail)
+#        exit(1)
+#      end
+#    end
 
   ensure
     if @profiler
@@ -348,7 +346,7 @@ HELP
     # Configuration
     # -------------
 
-    # TODO: Read config file
+    # Read config file
     @fix_config = load_config
 
     # Set up known_benchmarks (can be loaded from the config) - later to (todo: somehow) be combined
@@ -380,9 +378,6 @@ HELP
     end
   end
 
-  def init_known_benchmarks(benchmarks)
-  end
-
   # Loads the fix specific configuration from a file in current directory and returns a hash of
   # settings.
   #
@@ -405,47 +400,30 @@ HELP
   # * section is a sequence of decimal digits separated by '.' or '_'
   # * name is any string until end of string after a separator of '_' or '.'
   #
-  # Returns a hash with the corresponding entries as string keys
+  # Returns  an Issue with the corresponding entries as string keys
   #
   def parse_issue(issue_string)
-    return {} unless issue_string.is_a?(String)
-
-    regexp = /\A(?:(?<mnemonic>[A-Za-z][A-Za-z0-9_-]*(::[A-Za-z][A-Za-z0-9_-]*)?)::)?(?<section>[0-9](?:[._][0-9])*)?[._]?(?<name>.+)?/
-    matches = issue_string.match(regexp)
-    captured = matches ? matches.named_captures : { }
-    # Normalize the section
-    unless captured['section'].nil?
-      captured['section'].gsub!(/_/,'.')
-    end
-    captured
+    Puppet::Fix::Model::Issue.parse_issue(issue_string)
   end
 
   # Parses the given file_name and validates its "issues on nodes" content
   #
   def parse_issues_file(file_name)
     loaded = YAML.load_file(file_name)
-    validate_and_normalize_issues_file(loaded, file_name)
+    @reported_issues = validate_and_normalize_issues_file(loaded, file_name)
   end
 
-  # Validates issue_file type content coming from a given location (filename) is only for reporting/ reference
+  # Validates issue_file type content coming from a given location (filename; is only for reporting/ reference).
   # This also normalizes constructs like node/nodes into nodes.
   #
   def validate_and_normalize_issues_file(data, source_location)
-    # Top level is either a hash with keys 'benchmark', 'nodes', and 'issues', or an
-    # Array of such hashes
+    # Top level is either a hash with keys 'nodes'/'node' and 'issue/issues', or an Array of such hashes
     #
     data = [data] unless data.is_a?(Array)
     unless data.all? {|x| x.is_a?(Hash) }
       raise "--issues_file #{source_location} must be a hash or array of hashes, got a nested array"
     end
     data.each_with_index do | section, i |
-
-      ##--BENCHMARK
-      #   Must have a reference to a known benchmark
-
-      unless get_benchmark(section['benchmark'])
-        raise "--issues_file #{source_location} at index #{i} does not have a reference to a known benchmark. Got '#{section['benchmark']}'."
-      end
 
       ## -- NODE / NODES
       #     Must have a node, or list of nodes
@@ -456,10 +434,11 @@ HELP
         raise "--issues_file #{source_location} at index #{i} uses both 'node' and 'nodes' - both not allowed at the same time."
       end
       if !(node || nodes)
+        # Alternatively, allow this to end up reporting "no node had issue..."
         raise "--issues_file #{source_location} at index #{i} must contain either 'node' or 'nodes'"
       end
 
-      if nodes 
+      if nodes
         if !nodes.is_a?(Array)
           raise "--issues_file #{source_location} at index #{i} has a 'nodes' entry that is not an array"
         end
@@ -475,51 +454,103 @@ HELP
         raise "--issues_file #{source_location} at index #{i} The node name '#{node}' is not acceptable as the name of a node"
       end
 
-      ## -- ISSUES
-      #     Optionally have an (optionally empty) list of valid issues
+      ## -- ISSUE / ISSUES
+      #     One of 'issue' or 'issues' normalized to 'issues' an array of issue reference strings
 
       the_issues = section['issues']
-      if !the_issues.nil?
-        unless the_issues.is_a?(Array) && (the_issues.empty? || the_issues.all? {|x| x.is_a?(Hash) })
-          raise "--issues_file #{source_location} at index #{i} The 'issues' must be an array of hashes"
-        end
-
-        the_issues.each_with_index do |issue, ii|
-          the_issue = parse_issue(issue['issue'])
-          unless the_issue['section'] || the_issue['name']
-            raise "--issues_file #{source_location} at index #{i}, issue[#{ii}} must contain benchmark 'section', 'name' or both"
-          end
-
-          if the_issue['mnemonic']
-            raise "--issues_file #{source_location} at index #{i}, issue[#{ii}} cannot reference a benchmark. Got '#{the_issue['mnemonic']}'"
-          end
-          # Set the parsed and validated value
-          issue['issue'] = the_issue
-        end
-
-        ## -- TODO: params
+      the_issue = section['issue']
+      if the_issue && the_issues
+        raise "--issues_file #{source_location} at index #{i} uses both 'issue' and 'issues' - both not allowed at the same time."
       end
+      if !(the_issue || the_issues)
+        raise "--issues_file #{source_location} at index #{i} must contain either 'issue' or 'issues'"
+      end
+
+      if the_issues
+        if !the_issues.is_a?(Array)
+          raise "--issues_file #{source_location} at index #{i} has an 'issues' entry that is not an array"
+        end
+      else
+        # Normalize 'issue' to be issues: [issue, ...]
+        the_issues = section['issues'] = [the_issue]
+        section.delete('issue')
+      end
+
+      section['issues'] = the_issues.each_with_index.map do |issue, ii|
+        the_issue = parse_issue(issue)
+        unless the_issue.section
+          raise "--issues_file #{source_location} at index #{i}, issue[#{ii}] must contain 'section'"
+        end
+
+        unless the_issue.mnemonic
+          raise "--issues_file #{source_location} at index #{i}, issue[#{ii}] must reference a benchmark."
+        end
+        # Map to the parsed and validated value
+        the_issue
+      end
+    end
+  end
+
+  class StaticFixProvider
+    def initialize(fixes_map)
+      @fixmap = fixes_map
+    end
+
+    def find_fixes(issue: issue, nodes: nodes, facts: {})
+      require 'byebug'; debugger
+        { nodes => @fixmap[issue] || Puppet::Fix::Model::NoFix.new }
     end
   end
 
   def build_fixes(fixes_array)
     @fixes = {}
     return if fixes_array.nil?
-    fixes_array.each do | fix |
-      f = Fix.new(fix)
-      @fixes[f.section] = f
+    fixes_array.each do | fix_map |
+      the_fix     = fix_map['fix'] or raise ArgumentError.new("A fix must be one of 'task', 'plan', or 'command' - got neither.")
+
+      fix =
+      if the_fix['task']
+        Puppet::Fix::Model::TaskFix.new(the_fix['task'], the_fix['parameters'])
+
+      elsif the_fix['plan']
+        Puppet::Fix::Model::PlanFix.new(the_fix['plan'], the_fix['parameters'])
+
+      elsif the_fix['command']
+        Puppet::Fix::Model::CommandFix.new(the_fix['command_string'], the_fix['parameters'])
+      end
+
+      if fix.nil?
+        raise ArgumentError.new("A fix must be one of 'task', 'plan', or 'command' - got neither.")
+      end
+
+      the_issue   = Puppet::Fix::Model::Issue.new(
+        mnemonic: fix_map['benchmark:'] || @fix_config['default_benchmark'],
+        section:  fix_map['section'],
+        name:     fix_map['name']
+        )
+
+      @fixes[the_issue] = fix
     end
   end
 
-  def find_fix(issue)
-    # Find a corresponding fix, using section as key
-    # TODO: possibly, if section is missing, use the name instead
+#  def build_fixes(fixes_array)
+#    @fixes = {}
+#    return if fixes_array.nil?
+#    fixes_array.each do | fix |
+#      f = Fix.new(fix)
+#      @fixes[f.section] = f
+#    end
+#  end
 
-    # For now, the fixes are in settings, later composed differently using hiera
-    raise "No fixes found" if @fixes.empty?
-
-    @fixes[issue['section']] || NOFIX
-  end
+#  def find_fix(issue)
+#    # Find a corresponding fix, using section as key
+#    # TODO: possibly, if section is missing, use the name instead
+#
+#    # For now, the fixes are in settings, later composed differently using hiera
+#    raise "No fixes found" if @fixes.empty?
+#
+#    @fixes[issue['section']] || NOFIX
+#  end
 
   class Fix
     attr_reader :fix_map

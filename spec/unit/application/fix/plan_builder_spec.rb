@@ -66,16 +66,16 @@ describe 'PlanBuilder' do
 
   context 'when initialized' do
     it 'can be created with a fix provider' do 
-      expect {Puppet::Fix::Model::PlanBuilder.new(no_fix_fix_provider)}.to_not raise_error
+      expect {Puppet::Fix::Model::PlanBuilder.new(fix_provider: no_fix_fix_provider)}.to_not raise_error
     end
 
     it 'has a default name for the plan' do
-      builder = Puppet::Fix::Model::PlanBuilder.new(no_fix_fix_provider)
+      builder = Puppet::Fix::Model::PlanBuilder.new(fix_provider: no_fix_fix_provider)
       expect(builder.plan_name).to eq('generated_plan')
     end
 
     it 'uses a given plan name' do
-      builder = Puppet::Fix::Model::PlanBuilder.new(no_fix_fix_provider, 'plan_b')
+      builder = Puppet::Fix::Model::PlanBuilder.new(fix_provider: no_fix_fix_provider, plan_name: 'plan_b')
       expect(builder.plan_name).to eq('plan_b')
     end
   end
@@ -84,7 +84,7 @@ describe 'PlanBuilder' do
     # Benchmarks must be defined before issues can reference them
     #
     let(:builder) do
-      Puppet::Fix::Model::PlanBuilder.new(no_fix_fix_provider)
+      Puppet::Fix::Model::PlanBuilder.new(fix_provider: no_fix_fix_provider)
     end
 
     it 'accepts added definition of benchmarks' do
@@ -136,7 +136,7 @@ describe 'PlanBuilder' do
     # Benchmarks must be defined before issues can reference them
     #
     let(:builder) do
-      b = Puppet::Fix::Model::PlanBuilder.new(no_fix_fix_provider)
+      b = Puppet::Fix::Model::PlanBuilder.new(fix_provider: no_fix_fix_provider)
       b.add_benchmark(sample_bm)
       b
     end
@@ -168,7 +168,7 @@ describe 'PlanBuilder' do
 
   context 'when generating a plan' do
     let(:builder) do
-      b = Puppet::Fix::Model::PlanBuilder.new(test_fix_provider)
+      b = Puppet::Fix::Model::PlanBuilder.new(fix_provider: test_fix_provider)
       b.add_benchmark(sample_bm)
       b
     end
@@ -209,7 +209,7 @@ describe 'PlanBuilder' do
 
     context 'and there are reported issues' do
       let(:builder) do
-        b = Puppet::Fix::Model::PlanBuilder.new(test_fix_provider)
+        b = Puppet::Fix::Model::PlanBuilder.new(fix_provider: test_fix_provider)
         b.add_benchmark(sample_bm)
         # add reported issues
         b.add_reported_issue(b.add_issue_ref('fixname::1.1.1_should-be-good'), 'kermit', 'gonzo')
