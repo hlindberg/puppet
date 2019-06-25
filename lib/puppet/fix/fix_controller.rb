@@ -18,12 +18,12 @@ class Puppet::Fix::FixController
     end
 
     if issue
-      issues = [ {
-        'issue'  => issue.without_node,
+      @reported_issues = [ {
+        'issues'  => [issue.without_node],
         'nodes' => [ issue.node || 'example.com']
       }]
     elsif issues_file
-      issues = parse_issues_file(issues_file)
+      parse_issues_file(issues_file)
     else
       raise ArgumentError, "No issue was given, use 'issue' or 'issues_file'"
     end
@@ -104,8 +104,12 @@ class Puppet::Fix::FixController
   #
   # Returns  an Issue with the corresponding entries as string keys
   #
-  def parse_issue(issue_string)
+  def self.parse_issue(issue_string)
     Puppet::Fix::Model::Issue.parse_issue(issue_string)
+  end
+
+  def parse_issue(issue_string)
+    self.class.parse_issue(issue_string)
   end
 
   # Parses the given file_name and validates its "issues on nodes" content

@@ -9,7 +9,7 @@ class Puppet::Application::Fix < Puppet::Application
   option("--debug","-d")
 
   option("--issue ISSUE", "-i") do |arg|
-    options[:issue] = the_issue = parse_issue(arg)
+    options[:issue] = the_issue = Puppet::Fix::FixController.parse_issue(arg)
     unless the_issue.mnemonic && the_issue.section
       raise "Given issue must reference a benchmark and contain the section"
     end

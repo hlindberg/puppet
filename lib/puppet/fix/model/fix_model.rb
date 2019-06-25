@@ -354,7 +354,7 @@ module Model
 
     def without_node
       return self unless node
-      self.new(mnemonic: mnemonic, section: section, name: name)
+      self.class.new(mnemonic: mnemonic, section: section, name: name)
     end
 
     # Can be used as key in a hash
