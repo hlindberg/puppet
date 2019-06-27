@@ -145,13 +145,13 @@ module Puppet::Environments
     def initialize(env_name, env_dir, environment)
       super(environment)
       @env_dir = env_dir
-      @env_name = env_name
+      @env_name = env_name.to_sym
     end
 
     # @!macro loader_get_conf
     def get_conf(name)
       return nil unless name == @env_name
-      Puppet::Settings::EnvironmentConf.load_from(@env_dir, '')
+      Puppet::Settings::EnvironmentConf.load_from(@env_dir, [])
     end
   end
 
