@@ -173,7 +173,7 @@ Henrik Lindberg
 
 COPYRIGHT
 ---------
-Copyright (c) 2019 Puppet Inc., LLC Licensed under the Apache 2.0 License (??)
+Copyright (c) 2019 Puppet Inc., LLC Licensed under the Apache 2.0 License (<--TODO: Probably not)
 
 HELP
   end

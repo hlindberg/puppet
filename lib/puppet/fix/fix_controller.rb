@@ -92,8 +92,10 @@ class Puppet::Fix::FixController
     # CHEAT: This reads fixes from the config and creates a StaticFixProvider to service the Plan Builder
     # TODO: get fixes by looking up in hiera
     #
-    fixes = build_fixes(@fix_config['fixes'])
-    StaticFixProvider.new(fixes)
+#    fixes = build_fixes(@fix_config['fixes'])
+#    StaticFixProvider.new(fixes)
+
+    Puppet::Fix::HieraFixProvider.new(env_dir: File.join(Dir.pwd, "fixtest"))
   end
 
   # Parses an issue string consisting of <mnemonic>::<section>[_.]<name>
@@ -223,6 +225,8 @@ class Puppet::Fix::FixController
     end
   end
 
+  # TODO: Refactor to use FixesBuilder instead of having this copy
+  #
   def build_fixes(fixes_array)
     fixes = {}
     return if fixes_array.nil?
@@ -245,7 +249,7 @@ class Puppet::Fix::FixController
       end
 
       the_issue   = Puppet::Fix::Model::Issue.new(
-        mnemonic: fix_map['benchmark:'] || @fix_config['default_benchmark'],
+        mnemonic: fix_map['benchmark'] || @fix_config['default_benchmark'],
         section:  fix_map['section'],
         name:     fix_map['name']
         )

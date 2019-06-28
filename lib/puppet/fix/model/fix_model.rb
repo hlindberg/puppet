@@ -346,9 +346,11 @@ module Model
     end
 
     def ref
-      @ref ||= (node ?
-          "#{@mnemonic}://#{node}/#{@section}_#{@name}"
-        : "#{@mnemonic}:/#{@section}_#{@name}"
+      return @ref unless @ref.nil?
+      name_part = @name.nil? ? "" : "_#{@name}"
+      @ref = (node ?
+          "#{@mnemonic}://#{node}/#{@section}#{name_part}"
+        : "#{@mnemonic}:/#{@section}#{name_part}"
       ).freeze
     end
 
