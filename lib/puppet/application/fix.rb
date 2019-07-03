@@ -29,6 +29,10 @@ class Puppet::Application::Fix < Puppet::Application
 
   option("--explain")
 
+  option("--fixdir DIR") do |arg|
+    options[:fixdir] = arg
+  end
+
   def summary
     _("Produces remediation fixes for issues found when scanning for benchmark compliance or vulnerabilities")
   end
@@ -47,7 +51,7 @@ SYNOPSIS
 USAGE
 -----
 puppet fix [-h|--help] [-V|--version] [-d|--debug][--explain]
-  [-i|--issue] [-if|--issues_file]
+  [-i|--issue] [-if|--issues_file] [--fixdir DIR]
   [-p|--plan]
   [-l|--logdest syslog|eventlog|<FILE>|console]
   <file>
@@ -126,6 +130,10 @@ OPTIONS
   A yaml file with none/one or more issues for which some action is wanted.
   Mutually exclusive with --issue.
 
+* --fixdir DIR
+  Tells puppet fix to use the given DIR as the directory where the environment to use is located.
+  Defaults to current directory.
+
 * --version:
   The version of the benchmark for which the given --benchmark is a reference into.
 
@@ -190,7 +198,8 @@ HELP
         :issue,
         :issues_file,
         :plan_name,
-        :explain
+        :explain,
+        :fixdir
       ].include?(k) }
 
     controller.run(**controller_options)

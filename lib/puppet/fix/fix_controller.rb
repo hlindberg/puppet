@@ -9,7 +9,9 @@ class Puppet::Fix::FixController
   # The name of the plan that is generated
   attr_reader :plan_name
 
-  def run(issue: nil, issues_file: nil, plan_name: nil, explain: false )
+  attr_reader :fixdir
+
+  def run(issue: nil, issues_file: nil, plan_name: nil, explain: false, fixdir: nil )
 
     # -- Validate given options
     #
@@ -29,6 +31,15 @@ class Puppet::Fix::FixController
     end
 
     @explain = explain
+
+    if fixdir.nil?
+      @fixdir = "."
+    else
+      @fixdir = fixdir
+      unless File.directory?(fixdir)
+        raise ArgumentError, "Given --fixdir #{fixdir} is not a directory or does not exist"
+      end
+    end
 
     # Configuration
     # -------------
@@ -97,7 +108,7 @@ class Puppet::Fix::FixController
 #    fixes = build_fixes(@fix_config['fixes'])
 #    StaticFixProvider.new(fixes)
 
-    Puppet::Fix::HieraFixProvider.new(env_dir: File.join(Dir.pwd, "fixtest"), explain: @explain)
+    Puppet::Fix::HieraFixProvider.new(env_dir: File.join(Dir.pwd, @fixdir), explain: @explain)
   end
 
   # Parses an issue string consisting of <mnemonic>::<section>[_.]<name>
@@ -131,7 +142,7 @@ class Puppet::Fix::FixController
     # TODO: There should be a way to reference a particular config as an option
     #
     begin
-      return YAML.load_file("fixconf.yaml")
+      return YAML.load_file(File.join(@fixdir, "fixconf.yaml"))
     rescue Errno::ENOENT => e
       # No config file - ignore
       # Return a default config - an empty hash
