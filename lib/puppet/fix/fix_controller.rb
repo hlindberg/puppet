@@ -33,7 +33,7 @@ class Puppet::Fix::FixController
     @explain = explain
 
     if fixdir.nil?
-      @fixdir = "."
+      @fixdir = Dir.pwd
     else
       @fixdir = fixdir
       unless File.directory?(fixdir)
@@ -108,7 +108,7 @@ class Puppet::Fix::FixController
 #    fixes = build_fixes(@fix_config['fixes'])
 #    StaticFixProvider.new(fixes)
 
-    Puppet::Fix::HieraFixProvider.new(env_dir: File.join(Dir.pwd, @fixdir), explain: @explain)
+    Puppet::Fix::HieraFixProvider.new(env_dir: @fixdir, explain: @explain)
   end
 
   # Parses an issue string consisting of <mnemonic>::<section>[_.]<name>
