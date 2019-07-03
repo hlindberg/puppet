@@ -23,15 +23,14 @@ class Puppet::Application::Fix < Puppet::Application
     options[:issues_file] = arg
   end
 
-#  option("--test","-t")
-#  option("--verbose","-v")
-
   option("--logdest LOGDEST", "-l") do |arg|
     handle_logdest_arg(arg)
   end
 
+  option("--explain")
+
   def summary
-    _("Produces remediation fixes for issues found when scanning for vulnerabilities")
+    _("Produces remediation fixes for issues found when scanning for benchmark compliance or vulnerabilities")
   end
 
   def help
@@ -42,16 +41,15 @@ puppet-fix(8) -- #{summary}
 
 SYNOPSIS
 --------
-  Produces remediation fixes for issues found when scanning for benchmark compliance, or vulnerabilities
+  Produces remediation fixes for issues found when scanning for benchmark compliance or vulnerabilities.
 
 
 USAGE
 -----
-puppet fix [-h|--help] [-V|--version] [-d|--debug]
+puppet fix [-h|--help] [-V|--version] [-d|--debug][--explain]
   [-i|--issue] [-if|--issues_file]
-  [-v|--version]
   [-p|--plan]
-  [-l|--logdest syslog|eventlog|<FILE>|console] [--noop]
+  [-l|--logdest syslog|eventlog|<FILE>|console]
   <file>
 
 
@@ -78,17 +76,16 @@ An environment level 'fix::fixmap' is looked up and is deeply merge with higher 
 than any of the fixmaps found in modules. This allows the configuration to use fixes
 from modules not containing fixmaps.
 
-Benchmark ID
-------------
-A fully qualified issue is something like:
+Benchmark Mnemonic
+------------------
+A fully qualified benchmark control is something like this:
 
 xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark/1.1.1.1_Ensure_mounting_of_cramfs_filesystem_is_disabled
 
-Which is a horribly long thing to work with on the command line, and to use to switch between data sets in hiera.
-When feeding a result from a scan, these identifiers are obtained from the result file. For command line work it is possible to provide
-short-form names that are read from a configuration file.
+Which is a horribly long thing to work with. Puppet fix therefore uses a short form mnemonic/moniker for these long identities.
+Those are defined in a `fixconf.yaml` file that is read by Puppet Fix.
 
-Benchmark identifiers also needs to be mapped to canonical values to be used in hiera as standardized by Facter facts.
+TODO: Later it will be possible to define benchmarks in modules.
 
 ---
 benchmarks:
@@ -112,11 +109,15 @@ benchmarks:
       # rest as for rhel7
 
 
-This makes it possible to identify benchmarks as 'cis-rhel7', 'cis-rhel8', etc. and also provides the variable values for switching
-data sets and mappings in hiera. The setting 'default_benchmark' makes it possible to just give the name of the benchmark check/rule.
+This identifies benchmarks as 'cis-rhel7', 'cis-rhel8', etc. and also provides the variable values for switching
+data sets and mappings in hiera.
 
 OPTIONS
 -------
+* --explain
+  Outputs hiera explain output to stderr for all hiera lookups done by Puppet Fix. This is intended for debugging
+  where information is coming from.
+
 * --issue, -i
   The single issue for which some action is wanted. It is given on the form <mnemonic>::<section><name>.
   Mutually exclusive with --issues_file.
@@ -178,11 +179,6 @@ Copyright (c) 2019 Puppet Inc., LLC Licensed under the Apache 2.0 License (<--TO
 HELP
   end
 
-  def run_command
-    # For now, just call main
-    main
-  end
-
   def main
     # The tasks feature is always on
     Puppet[:tasks] = true
@@ -193,114 +189,17 @@ HELP
     controller_options = options.select {|k,_| [
         :issue,
         :issues_file,
-        :plan_name
+        :plan_name,
+        :explain
       ].include?(k) }
 
     controller.run(**controller_options)
 
-    # Stop here for now
-    return
+    exit(0)
 
-#    # Set the puppet code or file to use.
-#    if options[:code] || command_line.args.length == 0
-#      Puppet[:code] = options[:code] || STDIN.read
-#    else
-#      manifest = command_line.args.shift
-#      raise _("Could not find file %{manifest}") % { manifest: manifest } unless Puppet::FileSystem.exist?(manifest)
-#      Puppet.warning(_("Only one file can be used per run. Skipping %{files}") % { files: command_line.args.join(', ') }) if command_line.args.size > 0
-#    end
-#
-#    unless Puppet[:node_name_fact].empty?
-#      # Collect the facts specified for that node
-#      unless facts = Puppet::Node::Facts.indirection.find(Puppet[:node_name_value])
-#        raise _("Could not find facts for %{node}") % { node: Puppet[:node_name_value] }
-#      end
-#
-#      Puppet[:node_name_value] = facts.values[Puppet[:node_name_fact]]
-#      facts.name = Puppet[:node_name_value]
-#    end
-#
-#    # Find the Node
-#    unless node = Puppet::Node.indirection.find(Puppet[:node_name_value])
-#      raise _("Could not find node %{node}") % { node: Puppet[:node_name_value] }
-#    end
-#
-#    configured_environment = node.environment || Puppet.lookup(:current_environment)
-#
-#    apply_environment = manifest ?
-#      configured_environment.override_with(:manifest => manifest) :
-#      configured_environment
-#
-#    # Modify the node descriptor to use the special apply_environment.
-#    # It is based on the actual environment from the node, or the locally
-#    # configured environment if the node does not specify one.
-#    # If a manifest file is passed on the command line, it overrides
-#    # the :manifest setting of the apply_environment.
-#    node.environment = apply_environment
-#
-#    # TRANSLATION, the string "For puppet script" is not user facing
-#    Puppet.override({:current_environment => apply_environment}, "For puppet script") do
-#      # Merge in the facts.
-#      node.merge(facts.values) if facts
-#
-#      # Add server facts so $server_facts[environment] exists when doing a puppet script
-#      # SCRIPT TODO: May be needed when running scripts under orchestrator. Leave it for now.
-#      #
-#      node.add_server_facts({})
-#
-#      begin
-#        # Compile the catalog
-#
-#        # When compiling, the compiler traps and logs certain errors
-#        # Those that do not lead to an immediate exit are caught by the general
-#        # rule and gets logged.
-#        #
-#        begin
-#          # support the following features when evaluating puppet code
-#          # * $facts with facts from host running the script
-#          # * $settings with 'settings::*' namespace populated, and '$settings::all_local' hash
-#          # * $trusted as setup when using puppet apply
-#          # * an environment
-#          #
-#
-#          # fixup trusted information
-#          node.sanitize()
-#
-#          compiler = Puppet::Parser::ScriptCompiler.new(node.environment, node.name)
-#          topscope = compiler.topscope
-#
-#          # When scripting the trusted data are always local, but set them anyway
-#          topscope.set_trusted(node.trusted_data)
-#
-#          # Server facts are always about the local node's version etc.
-#          topscope.set_server_facts(node.server_facts)
-#
-#          # Set $facts for the node running the script
-#          facts_hash = node.facts.nil? ? {} : node.facts.values
-#          topscope.set_facts(facts_hash)
-#
-#          # create the $settings:: variables
-#          topscope.merge_settings(node.environment.name, false)
-#
-#          compiler.compile()
-#
-#        rescue Puppet::ParseErrorWithIssue, Puppet::Error
-#          # already logged and handled by the compiler for these two cases
-#          exit(1)
-#        end
-#
-#        exit(0)
-#      rescue => detail
-#        Puppet.log_exception(detail)
-#        exit(1)
-#      end
-#    end
-
-  ensure
-    if @profiler
-      Puppet::Util::Profiler.remove_profiler(@profiler)
-      @profiler.shutdown
-    end
+    rescue => detail
+      Puppet.log_exception(detail)
+      exit(1)
   end
 
   def setup

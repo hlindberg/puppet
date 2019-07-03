@@ -33,7 +33,11 @@ class Puppet::Fix::FixesBuilder
         name:     fix_map['name']
         )
 
-      fixes[the_issue] = fix
+      # Set fix for issue unless already set because issue set may have overridden fixes later
+      # in the fixes array since the issues in the array were not eliminated due to not having mnemonic set.
+      # (This is expected since common fixes should not have mnemonic set).
+      #
+      fixes[the_issue] ||= fix
     end
     fixes
   end

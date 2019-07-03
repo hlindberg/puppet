@@ -167,8 +167,7 @@ module Model
             #
             # fixes is a hash of Set[String] => Fix
             #
-            # TODO: find_fixes require benchmark facts
-            fixes = @fix_provider.find_fixes(issue: ri.issue, nodes: ri.nodes, facts: {})
+            fixes = @fix_provider.find_fixes(issue: ri.issue, nodes: ri.nodes, facts: @benchmarks[prev_bm].all_facts)
 
             # TODO: check if any nodes from ri.nodes was left out of the returned sets.
             #       those must be reported as "no fix found" (or error since provider is wrong).

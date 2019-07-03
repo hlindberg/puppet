@@ -21,7 +21,12 @@ class Puppet::Fix::HieraFixProvider
   # @param facts [Hash] - the facts to use
   # 
   def find_fixes(issue: , nodes: , facts: {})
-    result = Puppet::Pal.in_environment('fixenv', env_dir: env_dir, modulepath: [], facts: facts, variables: {'zappa' => 'frank' }) do | pal |
+    # TODO: Node requires that facts hash is writeable as it performs sanitaztion of the hash
+    #       Which it should not have to do when there is nothing to sanitize... (Bad Puppet).
+    #       The remedy here is to do a dup of the facts.
+    #
+    the_modulepath = File.join(env_dir, 'modules')
+    result = Puppet::Pal.in_environment('fixenv', env_dir: env_dir, modulepath: [the_modulepath], facts: facts.dup, variables: {'zappa' => 'frank' }) do | pal |
       pal.with_script_compiler do |c|
 
         # cheat to get topscope
@@ -34,8 +39,22 @@ class Puppet::Fix::HieraFixProvider
         only_explain_options = explain_options && !explain_data
 
         lookup_invocation = Puppet::Pops::Lookup::Invocation.new(scope, {}, {}, explain ? Puppet::Pops::Lookup::Explainer.new(explain_options, only_explain_options) : nil)
-        result = Puppet::Pops::Lookup.lookup(['fix::fixes'], nil, [], true, nil, lookup_invocation)
-        puts lookup_invocation.explainer.explain if explain
+        result = Puppet::Pops::Lookup.lookup(['fix::fixes'], nil, [], true, 'unique', lookup_invocation)
+
+        # The merger performs the equivalence of merge strategy 'unique' between the found results from individual
+        # modules.
+        #
+        merger = Puppet::Pops::UniqueMergeStrategy::INSTANCE
+        result = merger.merge_single(result)
+
+        # Loop over all modules on the module path and lookup <module>::fix::fixes and do a unique merge of each.
+        # Using the same invocation means explanations accumulate.
+        #
+        from_modules = scope.environment.modules.map(&:name).map do |module_name|
+          module_result = Puppet::Pops::Lookup.lookup(["#{module_name}::fix::fixes"], nil, [], true, 'unique', lookup_invocation)
+          result = merger.merge(result, module_result)
+        end
+        STDERR.puts lookup_invocation.explainer.explain if explain
 
         # result is Array[Struct[issue => issue_ref, fix => Variant[Struct[plan => ...], Struct[task => ...], Struct[command => ...]
         #

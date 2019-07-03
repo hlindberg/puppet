@@ -9,7 +9,7 @@ class Puppet::Fix::FixController
   # The name of the plan that is generated
   attr_reader :plan_name
 
-  def run(issue: nil, issues_file: nil, plan_name: nil )
+  def run(issue: nil, issues_file: nil, plan_name: nil, explain: false )
 
     # -- Validate given options
     #
@@ -27,6 +27,8 @@ class Puppet::Fix::FixController
     else
       raise ArgumentError, "No issue was given, use 'issue' or 'issues_file'"
     end
+
+    @explain = explain
 
     # Configuration
     # -------------
@@ -95,7 +97,7 @@ class Puppet::Fix::FixController
 #    fixes = build_fixes(@fix_config['fixes'])
 #    StaticFixProvider.new(fixes)
 
-    Puppet::Fix::HieraFixProvider.new(env_dir: File.join(Dir.pwd, "fixtest"))
+    Puppet::Fix::HieraFixProvider.new(env_dir: File.join(Dir.pwd, "fixtest"), explain: @explain)
   end
 
   # Parses an issue string consisting of <mnemonic>::<section>[_.]<name>
