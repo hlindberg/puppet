@@ -52,7 +52,7 @@ USAGE
 -----
 puppet fix [-h|--help] [-V|--version] [-d|--debug] [--explain]
   [--fixdir DIR]
-  [-p|--plan] [-o|--output_file <FILE>]
+  [-p|--plan] [-o|--output_file <FILE>|-|--]
   [-l|--logdest syslog|eventlog|<FILE>|console]
   [-i|--issue] [<FILE> [<FILE> ...]]
   <file>
@@ -153,8 +153,8 @@ OPTIONS
 
 * --output_file, -o <FILE>
   If given Puppet fix will write the generated plan to this file instead of sending it to stdout. A file name of "-" is taken
-  to mean stdout. A filename of "--" is taken to mean the (last :: separated segment) of the generated plan in the current directory.
-  The given file will be created, or overwritten if it already exists.
+  to mean stdout. A filename of "--" is taken to mean the (last :: separated segment) of the generated plan in the current directory
+  with a ".pp" suffix. The given file will be created, or overwritten if it already exists.
 
 * [<FILE> [<FILE> ...]]
   None, one or several filenames of yaml files containing reported issues in the Puppet fix specified format.
