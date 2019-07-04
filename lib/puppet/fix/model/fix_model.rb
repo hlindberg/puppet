@@ -93,7 +93,18 @@ module Model
       @reported_issues[issue] << ReportedIssue.new(issue, node_names)
     end
 
+    def combine_reported_issues
+      @reported_issues.keys.each do |issue|
+        ris = @reported_issues[issue]
+        @reported_issues[issue] = [ ris.reduce(&:+)]
+      end
+    end
+
     def produce_plan
+      # Combine individual reports so all nodes for one issue are processed together
+      #
+      combine_reported_issues
+
       # lines of text to be joined at the end
       result = []
 
@@ -435,6 +446,12 @@ module Model
     def add_nodes(*nodes)
       @nodes.merge(nodes.flatten.map {|x| x.freeze })
       @nodes_cache = nil
+    end
+
+    def +(other)
+      raise "ReportedIssue can only add another ReportedIssue - got value of class #{other.class}" unless other.is_a?(ReportedIssue)
+      raise "ReportedIssue can only combine nodes for same issue - got #{issue.ref} and {other.issue.ref}" unless other.is_a?(ReportedIssue)
+      self.class.new(issue, nodes + other.nodes)
     end
 
     # Returns a safe copy of nodes
