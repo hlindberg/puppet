@@ -98,10 +98,37 @@ class Puppet::Fix::FixController
   #
   def load_known_benchmarks
     # -- Set up known_benchmarks
-    # CHEAT: loaded from the config
-    # TODO: combine with information from modules
+
+    # Load from the config file - TODO: maybe not keep this
     #
     @benchmarks = (@fix_config['benchmarks'] || []).map {|b| Puppet::Fix::Model::Benchmark.from_hash(b) }
+
+    # Load from a benchmarks.yaml file
+    # 
+    fixdir_benchmarks = File.join(@fixdir, "benchmarks.yaml") 
+    if File.file?(fixdir_benchmarks)
+      loaded = YAML.load_file(fixdir_benchmarks)
+      @benchmarks.concat(loaded.map {|b| Puppet::Fix::Model::Benchmark.from_hash(b) })
+    end
+
+    # Load benchmarks.yaml files from all modules
+    #
+    the_modulepath = File.join(@fixdir, 'modules')
+    result = Puppet::Pal.in_environment('fixenv', env_dir: @fixdir, modulepath: [the_modulepath], facts: {}, variables: {}) do | pal |
+      pal.with_script_compiler do |c|
+
+        # cheat to get topscope
+        scope = c.send(:internal_compiler).topscope
+        scope.environment.modules.map(&:name).each do |module_name|
+          fixdir_benchmarks = File.join(@fixdir, "benchmarks.yaml") 
+          if File.file?(fixdir_benchmarks)
+            loaded = YAML.load_file(fixdir_benchmarks)
+            @benchmarks.concat(loaded.map {|b| Puppet::Fix::Model::Benchmark.from_hash(b) })
+          end
+        end
+      end
+    end
+
   end
 
   # Creates a Fix Provider that is later called to provide fixes for each reported issue
