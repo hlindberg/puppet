@@ -94,47 +94,133 @@ Fixes described at the fixdir-level have higher precedence than those from modul
 Precedence between modules is undefined.
 
 
-Benchmark Mnemonic
-------------------
+Benchmark
+---------
 A fully qualified benchmark control is something like this:
 
 xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark/1.1.1.1_Ensure_mounting_of_cramfs_filesystem_is_disabled
 
-Which is a horribly long thing to work with. Puppet fix therefore uses a short form mnemonic/moniker for these long identities.
-Those are defined in a `fixconf.yaml` file that is read by Puppet Fix.
+Which is a horribly long thing to work with. Puppet fix therefore uses a short form mnemonic/moniker
+for these long identities. Those are defined in a `fixconf.yaml` file that is read by Puppet Fix.
 
-TODO: Later it will be possible to define benchmarks in modules.
+Benchmarks are defined in a "benchmarks.yaml" file in the fixdir, or in
+"<moduleroot>/benchmarks.yaml". The content of the "benchmark.yaml" is an array of
+benchmark hashes - like this:
 
----
-benchmarks:
-  - 
-    benchmark:
-      id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark"  version: "2.2.0.1"
-      name: "cis-rhel7"
-      family: "cis"
+  ---
+  - {
+    id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_7_Benchmark",
+    version: "2.2.0.1",
+    name: "cis-sec-rhel7",
+    family: "cis-sec",
     facts: {
-      os:
-        name: "RedHat"
-        family: "RedHat"
-        release:
-          full: "7.2.1511"
-          major: "7"
-          minor: "2"
+      os: {
+        name: "RedHat",
+        family: "RedHat",
+        release: {
+          full: "7.2.1511",
+          major: "7",
+          minor: "2",
+        },
+      },
+    }
+  }
+  - {
+    id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_8_Benchmark",
+    version: "2.2.0.1",
+    name: "cis-sec-rhel8",
+    # rest as for rhel7
+    #
+  }
 
-  - benchmark:
-      id: "xccdf_org.cisecurity.benchmarks_benchmark_2.2.0.1_CIS_Red_Hat_Enterprise_Linux_8_Benchmark"
-      name: "cis-rhel8"
-      # rest as for rhel7
+This identifies benchmarks as 'cis-sec-rhel7', 'cis-sec-rhel8', etc. and also provides the fact values for switching
+data sets and mappings in hiera. This short name is referred to as "benchmark mnemonic" and it is used to identify issues.
 
+Note that the benchmark "name" must conform to a hierarchical URI scheme name.
 
-This identifies benchmarks as 'cis-rhel7', 'cis-rhel8', etc. and also provides the variable values for switching
-data sets and mappings in hiera.
+ISSUE
+-----
+A reference to an issue is written as a hierarchical URI on the form:
+
+    <mnemonic>://<nodepart/<section>_<title>
+
+Such that the required benchmark "<mnemonic>" is the URI scheme part, and "<section>" is the benchmark section/id in that benchmark.
+Optionally, an issue may contain a "//<nodepart>" to make the issue specific to one node/host. The "<title>" part is also optional
+(it is simply ignored).
+
+Examples:
+
+    # for the kermit.com node
+    cis-sec-rhel7://kermit.com/1.1.1.1
+
+    # without reference to a node
+    cis-sec-rhel7:/1.1.1.1
+    cis-sec-rhel7:/1.1.1.1_Ensure_mounting_of_cramfs_filesystem_is_disabled
+    cis-sec-rhel8:/1.1.1.1
+    cis-sec-rhel8:///1.1.1.1
+
+ISSUE FILES / REPORTS
+---------------------
+Multiple issues can be fed to Puppet fix in one or more yaml files. An issue file consists of an array of
+reported issue hashes as shown below. Each hash must have a "issue" key being an issue URI containing
+at least a benchmark mnemonic and a section. The hash must also have an "nodes" key with an array of
+nodes for which the issue is reported against.
+
+  ---
+  -
+    issue: "cis-sec-rhel7:/1.1.1.1_Ensure_mounting_of_cramfs_filesystem_is_disabled"
+    nodes:
+      - kermit.muppets.com
+      - gonzo.muppets.com
+  -
+    issue: "cis-sec-rhel7:/1.1.1.2"
+    nodes:
+      - kermit.muppets.com
+      - fozzie.muppets.com
+
+FIXES
+-----
+The final piece of the puzzle is the handling of the mapping of issues to fixes. This is done via hiera.
+Puppet fix will for each benchmark in a report lookup the set of available fixes. It does this by looking up the
+key "fix::fixes" and then merging the result of looking up "<modulename>::fix::fixes" from each module on
+the modulepath defined by all modules in the "fixdir/modules" directory.
+
+Puppet fix expects the result of the lookup to result in an array of "fix" hashes. Each such hash
+to contain at least "section" and "fix" keys, where "section" is the section in the benchmark, and fix
+hash describing how the issue should be fixed. There are three kinds of fixes; "task", "plan", and
+"command". For "task" and "plan", the value for the key is the name of the task/plan, and for "command" it is
+the command string to execute. They all accept a "parameters" key with additional parameters to be used
+in the generated plan.
+
+An entry may contain "benchmark" and "name" keys. The "name" is ignored, but serves as documentation.
+The "benchmark" if included will be used in matching a fix, but it is expected that benchmark family
+and version of benchmark is used to define the hiera hierarchy in such a way that a lookup produces
+a set of fixes that are applicable to what is being looked up. In other words, if a "benchmark" is not
+given puppet fix will fill in the benchmark that is currently being looked up. This is how it is possible
+to define a common set of fixes for multiple versions of the same benchmark.
+
+The lookup is performed with "unique" merge strategy.
+
+Here is an example of a fixes map from a module named "cis".
+
+  ---
+  cis::fix::fixes:
+    - {
+        section: '1.1.1.1',
+        name: 'Ensure_mounting_of_cramfs_filesystem_is_disabled',
+        fix: { task:  'cis::ensure_disabled_filesystem', parameters: { fs_name: 'cramfs' }}
+      }
+    - {
+        section: '1.1.1.2',
+        name: 'Ensure_mounting_of_freevxfs_filesystem_is_disabled',
+        fix: { task:  'cis::ensure_disabled_filesystem', parameters: { fs_name: 'freevxfs' }}
+      }
 
 OPTIONS
 -------
 * --explain
   Outputs hiera explain output to stderr for all hiera lookups done by Puppet Fix. This is intended for debugging
-  where information is coming from.
+  where information is coming from. Can produce quite lengthy output.
 
 * --issue, -i
   A single issue for which some action is wanted in the form of an URI on the form <mnemonic>://<node_name>/<section><title>.
@@ -171,7 +257,7 @@ ADDITIONAL OPTIONS
   Turns on debug level logging and special output. (TODO: this may clash with --explain such that producing double output. Also,
   there is currently no specific debug output from Puppet fix).
 
-* --logdest:
+* --logdest DEST
   Where to send log messages. Choose between 'syslog' (the POSIX syslog
   service), 'eventlog' (the Windows Event Log), 'console', or the path to a log
   file. Defaults to 'console'.
