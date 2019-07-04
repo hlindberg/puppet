@@ -11,7 +11,7 @@ class Puppet::Fix::FixController
 
   attr_reader :fixdir
 
-  def run(issue: nil, issue_files: [], plan_name: nil, explain: false, fixdir: nil )
+  def run(issue: nil, issue_files: [], plan_name: nil, explain: false, fixdir: nil, output_file: nil )
 
     @reported_issues = []
     if issue
@@ -70,10 +70,22 @@ class Puppet::Fix::FixController
     end
 
     # -- Produce the plan on stdout
-    #    TODO: write it to a given file
+    #    If output_file.nil?, only return the plan
     #
     plan = plan_builder.produce_plan()
-    puts plan
+
+    if output_file == '-'
+      STDOUT.puts(plan)
+    elsif output_file == '--'
+      leaf_plan_name = @plan_name.split('::')[-1]
+      File.open("#{leaf_plan_name}.pp", "w") do |f|
+        f.puts(plan)
+      end
+    elsif output_file
+      File.open(output_file, "w") do |f|
+        f.puts(plan)
+      end
+    end
 
     return plan
   end

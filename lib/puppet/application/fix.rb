@@ -19,8 +19,8 @@ class Puppet::Application::Fix < Puppet::Application
     options[:plan_name] = arg
   end
 
-  option("--file FILE", "-f") do |arg|
-    options[:issues_file] = arg
+  option("--output_file FILE", "-o") do |arg|
+    options[:output_file] = arg
   end
 
   option("--logdest LOGDEST", "-l") do |arg|
@@ -50,35 +50,49 @@ SYNOPSIS
 
 USAGE
 -----
-puppet fix [-h|--help] [-V|--version] [-d|--debug][--explain]
-  [-i|--issue] [-if|--issues_file] [--fixdir DIR]
-  [-p|--plan]
+puppet fix [-h|--help] [-V|--version] [-d|--debug] [--explain]
+  [--fixdir DIR]
+  [-p|--plan] [-o|--output_file <FILE>]
   [-l|--logdest syslog|eventlog|<FILE>|console]
+  [-i|--issue] [<FILE> [<FILE> ...]]
   <file>
 
 
 DESCRIPTION
 -----------
-Puppet fix can produce remediation fixes for known found (or explicitly given) issues, such as
-benchmark "controls", or "vulnerabilities".
+Puppet fix produces a bolt plan with remediation fixes for known found (or explicitly given)
+issues, such as reported non compliance with benchmark "controls", or detected "vulnerabilities".
 
-# TBD: When provided with a modulepath, via command line or config file, Puppet
-# Fix can load remediation fixes, functions, types, tasks and plans from modules.
+It does this by translating reported issues to a bolt plan containing a sequence of calls to
+`run_task()`, `run_plan()`, and `run_command()` with the nodes per reported issue as targets, and with
+task/plan-name or command-string obtained by looking up mappings from reported-issue id to
+remediating bolt action.
 
-Currently it offers output of instructions how to run an available fix given the id
-of an issue (i.e. benchmark, vulnerability, issue).
+Note that Puppet fix does not provide any scanning of target systems. Instead it acts
+on what is reported from such scanners. Puppet fix defines its own yaml input format
+for such reports and it is expected that external tools will provide translation to
+this format from the specific format produced by the various scanners on the market.
 
-Issues are mapped to fixes via hiera. Each module should bind its provided fixes
-to a key '<mymodule>::fix::fixmap', where '<mymodule>' is the name of the module.
+Puppet fix operates on information in a directory; the "fixdir", where it expects to fine
+a "fixconf.yaml" confguration file, optionally a "hiera.yaml" file and a "data" directory.
+Optionally, the fixdir can contain a "modules" directory with a standard puppet modules
+layout. The modules can contain "hiera.yaml" and "data". If a module defines benchmarks
+it should contain a "benchmarks.yaml" in its root. (TODO: module benchmarks.yaml not yet
+implemented).
+
+Note that Puppet fix only operates on information about bolt tasks, plans, and commands; it does
+not need access to the actual bolt artifacts. Those must however be present when running
+the produced plan with bolt. This means that modules can be created containing only
+mappings of issues to fixes provided by content in some other module present at runtime.
+
+Reported issues are mapped to fixes via hiera. The fixdir level hiera can
+bind such mappings to the key "fix::fixmap", and each contributing module
+to the key '<mymodule>::fix::fixmap', where '<mymodule>' is the name of the module.
 The bound value shoud be a hash with issue-id key and fix-id value.
 
-The key 'fix::include_modules' should be bound to an array of module names from which fixes
-should be included - it is looked up with unique merge.
-This allows the configuration to differ depending on operating system.
+Fixes described at the fixdir-level have higher precedence than those from modules.
+Precedence between modules is undefined.
 
-An environment level 'fix::fixmap' is looked up and is deeply merge with higher priority
-than any of the fixmaps found in modules. This allows the configuration to use fixes
-from modules not containing fixmaps.
 
 Benchmark Mnemonic
 ------------------
@@ -123,12 +137,9 @@ OPTIONS
   where information is coming from.
 
 * --issue, -i
-  The single issue for which some action is wanted. It is given on the form <mnemonic>::<section><name>.
-  Mutually exclusive with --issues_file.
-
-* --issues_file, -if
-  A yaml file with none/one or more issues for which some action is wanted.
-  Mutually exclusive with --issue.
+  A single issue for which some action is wanted in the form of an URI on the form <mnemonic>://<node_name>/<section><title>.
+  If given wihtout host as <mnemonic>:/<section> the generated plan will use a default "example.com" node name. The <title> of
+  the section may be included (for convenience when copy pasting reported information) but is ignored as the section is the primary key.
 
 * --fixdir DIR
   Tells puppet fix to use the given DIR as the directory where the environment to use is located.
@@ -140,22 +151,25 @@ OPTIONS
 * --plan
   The name of the plan. Defaults to `generated_plan`
 
-Note that any setting that's valid in the configuration
-file is also a valid long argument. For example, 'environment' is a
-valid setting, so you can specify '--environment mytest'
-as an argument.
+* --output_file, -o <FILE>
+  If given Puppet fix will write the generated plan to this file instead of sending it to stdout. A file name of "-" is taken
+  to mean stdout. A filename of "--" is taken to mean the (last :: separated segment) of the generated plan in the current directory.
+  The given file will be created, or overwritten if it already exists.
 
-See the configuration file documentation at
-https://puppet.com/docs/puppet/latest/configuration.html for the
-full list of acceptable parameters. A commented list of all
-configuration options can also be generated by running puppet with
-'--genconfig'.
+* [<FILE> [<FILE> ...]]
+  None, one or several filenames of yaml files containing reported issues in the Puppet fix specified format.
 
-* --debug:
-  Enable full debugging.
-
+ADDITIONAL OPTIONS
+------------------
 * --help:
   Print this help message
+
+* --trace
+  In case of an error the stacktrace at the point where an exception occured is output.
+
+* --debug
+  Turns on debug level logging and special output. (TODO: this may clash with --explain such that producing double output. Also,
+  there is currently no specific debug output from Puppet fix).
 
 * --logdest:
   Where to send log messages. Choose between 'syslog' (the POSIX syslog
@@ -174,11 +188,12 @@ EXAMPLES
 --------
     $ puppet fix -i cis-rhel7:/1.1.1.1_Ensure_mounting_of_cramfs_filesysten_is_disabled
     $ puppet fix -i cis-rhel7:/1.1.1.1
+    $ puppet fix -i cis-rhel7://kermit.com/1.1.1.1
+    $ puppet fix -p plan_b --fixdir ~/fixtest issue_report1.yaml issue_report2.yaml
 
 AUTHOR
 ------
 Henrik Lindberg
-
 
 COPYRIGHT
 ---------
@@ -188,18 +203,20 @@ HELP
   end
 
   def main
-    require 'byebug'; debugger
     # The tasks feature is always on
     Puppet[:tasks] = true
 
     controller = Puppet::Fix::FixController.new
+
+    options[:output_file] ||= "-"  # default stdout
 
     # only pass options the controller understands
     controller_options = options.select {|k,_| [
         :issue,
         :plan_name,
         :explain,
-        :fixdir
+        :fixdir,
+        :output_file,
       ].include?(k) }
     controller_options[:issue_files] = command_line.args
 
