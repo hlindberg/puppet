@@ -26,7 +26,7 @@ class Puppet::Fix::HieraFixProvider
     #       The remedy here is to do a dup of the facts.
     #
     the_modulepath = File.join(env_dir, 'modules')
-    result = Puppet::Pal.in_environment('fixenv', env_dir: env_dir, modulepath: [the_modulepath], facts: facts.dup, variables: {'zappa' => 'frank' }) do | pal |
+    result = Puppet::Pal.in_environment('fixenv', env_dir: env_dir, modulepath: [the_modulepath], facts: facts.dup, variables: {}) do | pal |
       pal.with_script_compiler do |c|
 
         # cheat to get topscope
