@@ -188,6 +188,7 @@ HELP
   end
 
   def main
+    require 'byebug'; debugger
     # The tasks feature is always on
     Puppet[:tasks] = true
 
@@ -196,11 +197,11 @@ HELP
     # only pass options the controller understands
     controller_options = options.select {|k,_| [
         :issue,
-        :issues_file,
         :plan_name,
         :explain,
         :fixdir
       ].include?(k) }
+    controller_options[:issue_files] = command_line.args
 
     controller.run(**controller_options)
 

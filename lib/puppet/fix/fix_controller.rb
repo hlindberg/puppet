@@ -11,23 +11,18 @@ class Puppet::Fix::FixController
 
   attr_reader :fixdir
 
-  def run(issue: nil, issues_file: nil, plan_name: nil, explain: false, fixdir: nil )
+  def run(issue: nil, issue_files: [], plan_name: nil, explain: false, fixdir: nil )
 
-    # -- Validate given options
-    #
-    if issue && issues_file
-      raise ArgumentError, "'issue' and 'issues_file' cannot be used at the same time"
-    end
-
+    @reported_issues = []
     if issue
-      @reported_issues = [ {
+      @reported_issues << {
         'issues'  => [issue.without_node],
         'nodes' => [ issue.node || 'example.com']
-      }]
-    elsif issues_file
-      parse_issues_file(issues_file)
+      }
+    elsif !issue_files.empty?
+      parse_issue_files(issue_files)
     else
-      raise ArgumentError, "No issue was given, use 'issue' or 'issues_file'"
+      raise ArgumentError, "No issue was given, use '--issue' or one or more file names containing reported issues for nodes"
     end
 
     @explain = explain
@@ -129,9 +124,11 @@ class Puppet::Fix::FixController
 
   # Parses the given file_name and validates its "issues on nodes" content
   #
-  def parse_issues_file(file_name)
-    loaded = YAML.load_file(file_name)
-    @reported_issues = validate_and_normalize_issues_file(loaded, file_name)
+  def parse_issue_files(file_names)
+    file_names.each do |f|
+      loaded = YAML.load_file(f)
+      @reported_issues.concat(validate_and_normalize_issues_file(loaded, f))
+    end
   end
 
   # Loads the fix specific configuration from a file in current directory and returns a hash of
@@ -158,7 +155,7 @@ class Puppet::Fix::FixController
     #
     data = [data] unless data.is_a?(Array)
     unless data.all? {|x| x.is_a?(Hash) }
-      raise "the 'issues_file' #{source_location} must be a hash or array of hashes, got a nested array"
+      raise "the 'issues-file' #{source_location} must be a hash or array of hashes, got a nested array"
     end
     data.each_with_index do | section, i |
 
@@ -168,16 +165,16 @@ class Puppet::Fix::FixController
       node = section['node']
       nodes = section['nodes']
       if node && nodes
-        raise "--issues_file #{source_location} at index #{i} uses both 'node' and 'nodes' - both not allowed at the same time."
+        raise "issues-file #{source_location} at index #{i} uses both 'node' and 'nodes' - both not allowed at the same time."
       end
       if !(node || nodes)
         # Alternatively, allow this to end up reporting "no node had issue..."
-        raise "--issues_file #{source_location} at index #{i} must contain either 'node' or 'nodes'"
+        raise "issues-file #{source_location} at index #{i} must contain either 'node' or 'nodes'"
       end
 
       if nodes
         if !nodes.is_a?(Array)
-          raise "--issues_file #{source_location} at index #{i} has a 'nodes' entry that is not an array"
+          raise "issues-file #{source_location} at index #{i} has a 'nodes' entry that is not an array"
         end
       else
         # Normalize node to be nodes: [node]
