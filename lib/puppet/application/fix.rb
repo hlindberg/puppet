@@ -23,6 +23,10 @@ class Puppet::Application::Fix < Puppet::Application
     options[:output_file] = arg
   end
 
+  option("--skip FILE", "-s") do |arg|
+    options[:skip_file] = arg
+  end
+
   option("--logdest LOGDEST", "-l") do |arg|
     handle_logdest_arg(arg)
   end
@@ -222,25 +226,25 @@ OPTIONS
   Outputs hiera explain output to stderr for all hiera lookups done by Puppet Fix. This is intended for debugging
   where information is coming from. Can produce quite lengthy output.
 
-* --issue, -i
+* --issue <ISSUE>, -i <ISSUE>
   A single issue for which some action is wanted in the form of an URI on the form <mnemonic>://<node_name>/<section><title>.
   If given wihtout host as <mnemonic>:/<section> the generated plan will use a default "example.com" node name. The <title> of
   the section may be included (for convenience when copy pasting reported information) but is ignored as the section is the primary key.
 
-* --fixdir DIR
+* --fixdir <DIR>
   Tells puppet fix to use the given DIR as the directory where the environment to use is located.
   Defaults to current directory.
 
-* --version:
+* --version
   The version of the benchmark for which the given --benchmark is a reference into.
 
-* --plan
-  The name of the plan. Defaults to `generated_plan`
+* --plan <NAME>
+  The name of the plan. Defaults to "generated_plan"
 
 * --output_file, -o <FILE>
   If given Puppet fix will write the generated plan to this file instead of sending it to stdout. A file name of "-" is taken
   to mean stdout. A filename of "--" is taken to mean the (last :: separated segment) of the generated plan in the current directory
-  with a ".pp" suffix. The given file will be created, or overwritten if it already exists.
+  with a ".pp" suffix. The given file will be created, or overwritten if it already exists. Defaults to stdout.
 
 * [<FILE> [<FILE> ...]]
   None, one or several filenames of yaml files containing reported issues in the Puppet fix specified format.
