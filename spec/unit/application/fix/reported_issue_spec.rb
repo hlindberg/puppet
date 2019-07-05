@@ -1,5 +1,5 @@
 require 'spec_helper'
-require 'puppet/fix/fix_model'
+require 'puppet/fix/fixes'
 
 describe 'ReportedIssue' do
 
