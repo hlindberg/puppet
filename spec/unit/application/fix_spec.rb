@@ -29,8 +29,8 @@ describe Puppet::Application::Fix do
     end
 
     it "should store argument value when calling handle_#{option}" do
-      expect(@apply.options).to receive(:[]=).with(option, 'arg')
-      @apply.send("handle_#{option}".to_sym, 'arg')
+      expect(@apply.options).to receive(:[]=).with(option, kind_of(Puppet::Fix::Model::Issue))
+      @apply.send("handle_#{option}".to_sym, 'rhel7:/1.1.1.1')
     end
   end
 

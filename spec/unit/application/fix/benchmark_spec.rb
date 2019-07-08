@@ -1,5 +1,5 @@
 require 'spec_helper'
-require 'puppet/fix/fixes'
+require 'puppet/fix'
 
 describe 'Benchmark' do
 

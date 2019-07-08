@@ -1,5 +1,5 @@
 require 'spec_helper'
-require 'puppet/fix/fixes'
+require 'puppet/fix'
 
 describe 'Fixes' do
 
@@ -31,7 +31,7 @@ describe 'Fixes' do
     it 'outputs single line comment when generating pp code' do
       f = Puppet::Fix::Model::NoFix.new
       # array with lines of text, indented 2 spaces
-      expect(f.to_pp).to eq(['  ## Unavailable : No fix defined for this issue!'])
+      expect(f.to_pp).to eq(['  # NO FIX     : No fix defined for this issue!'])
     end
   end
 
@@ -48,7 +48,7 @@ describe 'Fixes' do
     it 'outputs single line comment when generating pp code' do
       f = Puppet::Fix::Model::SkippedFix.new
       # array with lines of text, indented 2 spaces
-      expect(f.to_pp).to eq(['  ## Skip        : Configured to be skipped!'])
+      expect(f.to_pp).to eq(['  # Skipped    : Configured to be skipped!'])
     end
   end
 
@@ -68,12 +68,12 @@ describe 'Fixes' do
 
     it 'outputs a run_plan call (without parameters, when no parameters were given) when generating pp code' do
       f = Puppet::Fix::Model::PlanFix.new('myplan')
-      expect(f.to_pp('$targets')).to eq(["  run_plan('myplan', $targets, )"])
+      expect(f.to_pp('$targets')).to eq(["  run_plan('myplan', $targets)"])
     end
 
     it 'outputs a run_plan call (with parameters, when given) when generating pp code' do
       f = Puppet::Fix::Model::PlanFix.new('myplan', {'x' => 42, 'y' => 24})
-      expect(f.to_pp('$targets')).to eq(["  run_plan('myplan', $targets, 'x' => 42, 'y' => 24, )"])
+      expect(f.to_pp('$targets')).to eq(["  run_plan('myplan', $targets, 'x' => 42, 'y' => 24)"])
     end
   end
 
@@ -93,12 +93,12 @@ describe 'Fixes' do
 
     it 'outputs a run_task call (without parameters, when no parameters were given) when generating pp code' do
       f = Puppet::Fix::Model::TaskFix.new('mytask')
-      expect(f.to_pp('$targets')).to eq(["  run_task('mytask', $targets, )"])
+      expect(f.to_pp('$targets')).to eq(["  run_task('mytask', $targets)"])
     end
 
     it 'outputs a run_task call (with parameters, when given) when generating pp code' do
       f = Puppet::Fix::Model::TaskFix.new('mytask', {'x' => 42, 'y' => 24})
-      expect(f.to_pp('$targets')).to eq(["  run_task('mytask', $targets, 'x' => 42, 'y' => 24, )"])
+      expect(f.to_pp('$targets')).to eq(["  run_task('mytask', $targets, 'x' => 42, 'y' => 24)"])
     end
   end
 
@@ -118,12 +118,12 @@ describe 'Fixes' do
 
     it 'outputs a run_command call (without parameters, when no parameters were given) when generating pp code' do
       f = Puppet::Fix::Model::CommandFix.new('@echo all is well')
-      expect(f.to_pp('$targets')).to eq(["  run_command('@echo all is well', $targets, )"])
+      expect(f.to_pp('$targets')).to eq(["  run_command('@echo all is well', $targets)"])
     end
 
     it 'outputs a run_command call (with parameters, when given) when generating pp code' do
       f = Puppet::Fix::Model::CommandFix.new('@echo all is well', {'x' => 42, 'y' => 24})
-      expect(f.to_pp('$targets')).to eq(["  run_command('@echo all is well', $targets, 'x' => 42, 'y' => 24, )"])
+      expect(f.to_pp('$targets')).to eq(["  run_command('@echo all is well', $targets, 'x' => 42, 'y' => 24)"])
     end
   end
 

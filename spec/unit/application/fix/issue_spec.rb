@@ -1,5 +1,5 @@
 require 'spec_helper'
-require 'puppet/fix/fixes'
+require 'puppet/fix'
 
 describe 'The Fix Model' do
   describe 'Issue' do
@@ -18,12 +18,12 @@ describe 'The Fix Model' do
     end
 
     it 'can be created from a string' do
-      x = Puppet::Fix::Model::Issue.parse_issue('abc::1.1.1_test-issue')
+      x = Puppet::Fix::Model::Issue.parse_issue('abc:/1.1.1_test-issue')
       expect(x.name).to eq('test-issue')
       expect(x.mnemonic).to eq('abc')
       expect(x.section).to eq('1.1.1')
 
-      x = Puppet::Fix::Model::Issue.parse_issue('abc::1.1.1-test-issue')
+      x = Puppet::Fix::Model::Issue.parse_issue('abc:/1.1.1-test-issue')
       expect(x.name).to eq('test-issue')
       expect(x.mnemonic).to eq('abc')
       expect(x.section).to eq('1.1.1')
@@ -31,7 +31,7 @@ describe 'The Fix Model' do
 
     it 'returns a normalized reference from #ref' do
       x = Puppet::Fix::Model::Issue.new(mnemonic: 'abc', section: '1.1.1', name: 'test-issue')
-      expect(x.ref).to eq('abc::1.1.1_test-issue')
+      expect(x.ref).to eq('abc:/1.1.1_test-issue')
     end
 
     it 'eql? method compares attribute equality' do

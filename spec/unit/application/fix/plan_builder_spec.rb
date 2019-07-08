@@ -1,5 +1,5 @@
 require 'spec_helper'
-require 'puppet/fix/fixes'
+require 'puppet/fix'
 
 describe 'PlanBuilder' do
 
@@ -95,27 +95,27 @@ describe 'PlanBuilder' do
 
     it 'does not accept adding issue by ref referencing unknown benchmark' do
       expect { 
-        builder.add_issue_ref('nope::1.2.3_problem')
+        builder.add_issue_ref('nope:/1.2.3_problem')
       }.to raise_error(/Given issue references unknown benchmark/)
     end
 
     it 'does not accept adding Issue referencing unknown benchmark' do
       expect {
-        builder.add_issue(Puppet::Fix::Model::Issue.parse_issue('nope::1.2.3_problem'))
+        builder.add_issue(Puppet::Fix::Model::Issue.parse_issue('nope:/:1.2.3_problem'))
       }.to raise_error(/Given issue references unknown benchmark/)
     end
 
     it 'accepts added issue by ref for defined benchmark' do
       builder.add_benchmark(sample_bm)
       expect {
-        builder.add_issue_ref('fixname::1.2.3_problem')
+        builder.add_issue_ref('fixname:/1.2.3_problem')
       }.to_not raise_error
     end
 
     it 'accepts added issue for defined benchmark' do
       builder.add_benchmark(sample_bm)
       expect {
-        builder.add_issue(Puppet::Fix::Model::Issue.parse_issue('fixname::1.2.3_problem'))
+        builder.add_issue(Puppet::Fix::Model::Issue.parse_issue('fixname:/1.2.3_problem'))
       }.to_not raise_error
     end
   end
@@ -142,15 +142,15 @@ describe 'PlanBuilder' do
     end
 
     let(:sample_issue1) do
-      Puppet::Fix::Model::Issue.parse_issue('fixname::1.2.3_problem')
+      Puppet::Fix::Model::Issue.parse_issue('fixname:/1.2.3_problem')
     end
 
     let(:sample_issue2) do
-      Puppet::Fix::Model::Issue.parse_issue('fixname::1.2.3_problem')
+      Puppet::Fix::Model::Issue.parse_issue('fixname:/1.2.3_problem')
     end
 
     let(:unknown_issue) do
-      Puppet::Fix::Model::Issue.parse_issue('unknown::1.2.3_problem')
+      Puppet::Fix::Model::Issue.parse_issue('unknown:/1.2.3_problem')
     end
 
     it 'accepts a reported issue referencing a known benchmark' do
@@ -212,11 +212,11 @@ describe 'PlanBuilder' do
         b = Puppet::Fix::Model::PlanBuilder.new(fix_provider: test_fix_provider)
         b.add_benchmark(sample_bm)
         # add reported issues
-        b.add_reported_issue(b.add_issue_ref('fixname::1.1.1_should-be-good'), 'kermit', 'gonzo')
-        b.add_reported_issue(b.add_issue_ref('fixname::2.1.1_should-not-be-bad'), 'kermit', 'gonzo', 'piggy')
-        b.add_reported_issue(b.add_issue_ref('fixname::3.1.1_no-bad-enabled'), 'kermit', 'gonzo')
-        b.add_reported_issue(b.add_issue_ref('fixname::4.1.1_without-security-holes'), 'kermit', 'gonzo', 'waldorf')
-        b.add_reported_issue(b.add_issue_ref('fixname::5.1.1_be-nice-to-everyone'), 'kermit', 'gonzo')
+        b.add_reported_issue(b.add_issue_ref('fixname:/1.1.1_should-be-good'), 'kermit', 'gonzo')
+        b.add_reported_issue(b.add_issue_ref('fixname:/2.1.1_should-not-be-bad'), 'kermit', 'gonzo', 'piggy')
+        b.add_reported_issue(b.add_issue_ref('fixname:/3.1.1_no-bad-enabled'), 'kermit', 'gonzo')
+        b.add_reported_issue(b.add_issue_ref('fixname:/4.1.1_without-security-holes'), 'kermit', 'gonzo', 'waldorf')
+        b.add_reported_issue(b.add_issue_ref('fixname:/5.1.1_be-nice-to-everyone'), 'kermit', 'gonzo')
         b
       end
 
