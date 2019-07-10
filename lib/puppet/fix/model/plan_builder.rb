@@ -193,7 +193,7 @@ class PlanBuilder
               idx = node_set_index.size
               node_set_index[ri.nodes] = idx
               result << [
-                "    #{target_var(idx)} = [" + ri.nodes.sort.map {|n| n.inspect}.join(', ') + "]"
+                "    #{target_var(idx)} = [" + ri.nodes.flatten.sort.map {|n| n.inspect}.join(', ') + "]"
                 ]
             end
             #   output code for the fix
